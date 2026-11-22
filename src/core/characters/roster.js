@@ -16,6 +16,8 @@ class Biscuit extends Character {
       passive: { name: 'GOOD BOY', desc: 'DRAFTS SHOW 4 CARDS' },
       projectile: { rows: ['w.....w', 'wwwwwww', 'w.....w'], palette: { w: WHITE } },
       colors: { main: '#c07a3c' },
+      taunts: ['WOOF WOOF!', 'GOOD BOY!', 'FETCH THAT!', 'BARK-ED IT!', 'WHO LET THE DOG OUT?'],
+      victory: ['WHO IS A GOOD BOY? ME!', 'SIT. STAY. LOSE.', 'BURY THIS LOSS IN THE YARD', 'TREAT TIME FOR ME!', 'YOU GOT SCHOOLED, PUP'],
     });
   }
   get draftSize() { return 4; }
@@ -79,10 +81,12 @@ class Miso extends Character {
   constructor() {
     super({
       id: 'miso', name: 'MISO', animal: 'CAT',
-      stats: { hp: 1, power: 3, size: 1, control: 4 },
+      stats: { hp: 1, power: 3, size: 2, control: 4 },
       passive: { name: 'NINE LIVES', desc: 'SURVIVES ONE KO WITH 1 HP' },
       projectile: { rows: ['w.w.w.w.ww.', '.wwwwwwwwkw', 'w.w.w.w.ww.'], palette: { w: WHITE, k: N } },
       colors: { main: '#9aa0b4' },
+      taunts: ['MEOW-HAHA!', 'TOO SLOW!', 'PURR-FECT!', 'CAT-ASTROPHE!', 'NAP TIME FOR YOU'],
+      victory: ['I HAD 8 LIVES TO SPARE', 'YOU ARE NOT EVEN A SNACK', 'BOW TO YOUR CAT OVERLORD', 'THAT WAS A HAIRBALL', 'PURR-FECT VICTORY'],
     });
   }
   onLethal(game, me) {
@@ -151,20 +155,23 @@ class Miso extends Character {
 }
 
 // =====================================================================
-// SHELLY the turtle - tank. Passive: half damage from splash & blasts.
+// SHELLY the turtle - tank. Passive: half damage from splash (near misses).
 // =====================================================================
 class Shelly extends Character {
   constructor() {
     super({
       id: 'shelly', name: 'SHELLY', animal: 'TURTLE',
-      stats: { hp: 5, power: 2, size: 4, control: 2 },
-      passive: { name: 'SHELL', desc: 'HALF DAMAGE FROM SPLASH + BLASTS' },
+      stats: { hp: 4, power: 4, size: 4, control: 3 },
+      passive: { name: 'SHELL', desc: 'HALF DAMAGE FROM SPLASH (NEAR MISSES)' },
       projectile: { rows: ['.ggg.', 'gGggg', 'ggggg', '.ggg.'], palette: { g: '#9a9aa8', G: '#d6d6e0' } },
       colors: { main: '#4f8a3c' },
+      taunts: ['SHELL YEAH!', 'SLOW AND STEADY!', 'TURTLE POWER!', 'YAWN...', 'HARD SHELL, SOFT YOU'],
+      victory: ['SLOW AND STEADY WINS!', 'I AM 150 YEARS OLD AND STILL WON', 'GET SHELL-SHOCKED', 'NAP? I WAS WINNING', 'COME BACK STRONGER, KID'],
     });
   }
+  // Only near misses: bombs and combos still hit a turtle at full strength.
   modifyIncoming(game, me, d) {
-    return d.type === 'splash' || d.type === 'blast' ? Math.ceil(d.amount / 2) : d.amount;
+    return d.type === 'splash' ? Math.ceil(d.amount / 2) : d.amount;
   }
   drawFrame(p, f) {
     const S = '#4f8a3c', D = '#3a6b2c', H = '#8fbf5a', K = '#9cc76a', Y = '#e8d48a';
@@ -212,6 +219,8 @@ class Bandit extends Character {
       passive: { name: 'STICKY PAWS', desc: 'HITS STEAL A RANDOM ITEM' },
       projectile: { rows: ['..b..', '.rrr.', '..y..', '..y..', '.rrr.'], palette: { b: '#6b4a2e', r: '#e04848', y: '#f2e6b0' } },
       colors: { main: '#8a8f9a' },
+      taunts: ['THANKS FOR THE LOOT!', 'SNEAKY!', 'TRASH TALK!', 'CATCH YA LATER!', 'FINDERS KEEPERS!'],
+      victory: ['YOUR STUFF IS MY STUFF NOW', 'I STOLE YOUR DIGNITY TOO', 'BACK TO THE TRASH BIN!', 'EZ LOOT', 'NO REFUNDS!'],
     });
   }
   onVolleyHit(game, me, foe) {

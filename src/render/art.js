@@ -21,6 +21,30 @@ function characterArt(c) {
 }
 
 // ---------- small sprites ----------
+// 3 flickering frames of a small pixel flame (no outline: fire glows).
+const flame = (k) => {
+  const p = new Pix(8, 12);
+  const sway = [0, 1, -1][k];
+  p.ellipse(4, 8.5, 3.4, 3.4, '#e04848');
+  p.ellipse(4 + sway * 0.5, 6, 2.2, 3, '#e04848');
+  p.set(4 + sway, 1 + k % 2, '#e04848'); p.set(4 + sway, 2, '#e04848');
+  p.ellipse(4, 9, 2.4, 2.4, '#ff8a2a');
+  p.ellipse(4 + sway * 0.5, 7, 1.4, 2.2, '#ff8a2a');
+  p.ellipse(4, 9.6, 1.3, 1.6, '#ffd84a');
+  return p;
+};
+
+// Ice block drawn around a frozen character.
+const iceBlock = () => {
+  const p = new Pix(30, 28);
+  p.rect(0, 0, 30, 28, '#bfe9ff');
+  p.rect(0, 0, 30, 1, '#ffffff'); p.rect(0, 0, 1, 28, '#ffffff');
+  p.rect(29, 0, 1, 28, '#7cc4ea'); p.rect(0, 27, 30, 1, '#7cc4ea');
+  for (let k = 0; k < 7; k++) { p.set(4 + k, 3 + k, '#ffffff'); p.set(5 + k, 3 + k, '#e6f7ff'); }
+  for (let k = 0; k < 4; k++) p.set(20 + k, 5 + k, '#ffffff');
+  return p;
+};
+
 const marker = () =>
   Pix.fromStrings(['..y..', '.yyy.', 'yyyyy'], { y: '#ffd84a' }).outline(OUTLINE);
 
@@ -144,6 +168,8 @@ export function buildArt() {
   return {
     characters: Object.fromEntries(Object.values(CHARACTERS).map((c) => [c.id, characterArt(c)])),
     marker: marker().toCanvas(),
+    flames: [0, 1, 2].map((k) => flame(k).toCanvas()),
+    iceBlock: iceBlock().toCanvas(),
     flag: flag().toCanvas(),
     cloud: cloud().toCanvas(),
     background: drawBackground(),

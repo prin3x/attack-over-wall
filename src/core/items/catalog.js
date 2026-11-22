@@ -2,7 +2,8 @@
 import { Item } from './Item.js';
 import { Status } from './Status.js';
 import { Combo } from './Combo.js';
-import { registerItem, registerStatus, registerCombo } from './registry.js';
+import { Reaction } from './Reaction.js';
+import { registerItem, registerStatus, registerCombo, registerReaction } from './registry.js';
 
 const OUTLINE = '#1c1220';
 const WHITE = '#ffffff';
@@ -30,13 +31,27 @@ class StinkStatus extends Status {
   }
 }
 
-class BurnStatus extends Status {
-  constructor() { super({ id: 'burn', icon: 'pepper', label: 'ON FIRE!', visual: 'burn', showCount: true }); }
+class FrozenStatus extends Status {
+  constructor() { super({ id: 'frozen', icon: 'ice', label: 'FROZEN!', visual: 'ice', showCount: true }); }
+  // `value` = turns still to skip. After the last skip you stay in the ice (value 0)
+  // through the attacker's bonus turn (they can SHATTER you), and thaw on your next turn.
   onTurnStart(game, p) {
-    const left = p.status.burn - 1;
-    if (left > 0) p.status.burn = left;
+    if (p.status.frozen > 0) {
+      p.status.frozen -= 1;
+      return { text: 'FROZEN!', cls: 'item', sound: 'freeze', skip: true };
+    }
+    game.removeStatus(p, this.id);
+    return { text: 'THAWED', cls: 'item' };
+  }
+}
+
+class WetStatus extends Status {
+  constructor() { super({ id: 'wet', icon: 'water', label: 'WET!', visual: 'wet', showCount: true }); }
+  onTurnStart(game, p) {
+    const left = p.status.wet - 1;
+    if (left > 0) p.status.wet = left;
     else game.removeStatus(p, this.id);
-    return { damage: 7, text: 'BURN!', cls: 'dmg' };
+    return null;
   }
 }
 
@@ -114,6 +129,57 @@ class DuckItem extends Item {
   drawIcon(p) {
     p.ellipse(4.5, 7, 4, 2.5, '#ffd84a'); p.ellipse(6.5, 3.5, 2.2, 2.2, '#ffd84a');
     p.set(9, 4, '#ff8a2a'); p.set(7, 3, OUTLINE); p.set(2, 6, '#f0b030'); p.set(3, 6, '#f0b030');
+  }
+}
+
+class IceItem extends Item {
+  constructor() { super({ id: 'ice', name: 'ICE CUBE', desc: 'DIRECT HIT: FOE SKIPS A TURN', weight: 6, kind: 'attack', cpuPriority: 9 }); }
+  modifyShot(shot) {
+    shot.capDamage(10, 15);
+    shot.element = 'ice';
+    shot.inflicts.push({ status: 'frozen', value: 1, direct: true });
+    shot.setLook('ice', 1);
+    shot.trails.push('frost');
+  }
+  drawIcon(p) {
+    p.rect(1, 2, 8, 7, '#bfe9ff');
+    p.rect(1, 2, 8, 1, WHITE); p.rect(1, 3, 1, 5, WHITE);
+    p.rect(8, 3, 1, 6, '#7cc4ea'); p.rect(2, 8, 7, 1, '#7cc4ea');
+    p.set(3, 4, WHITE); p.set(4, 5, WHITE); p.set(6, 6, '#e6f7ff');
+  }
+}
+
+class WaterItem extends Item {
+  constructor() { super({ id: 'water', name: 'WATER BALLOON', desc: 'SOAKS FOE: WET 2 TURNS', weight: 7, kind: 'attack', cpuPriority: 4 }); }
+  modifyShot(shot) {
+    shot.capDamage(8, 12);
+    shot.element = 'water';
+    shot.inflicts.push({ status: 'wet', value: 2 });
+    shot.setLook('water', 1);
+    shot.trails.push('drip');
+  }
+  drawIcon(p) {
+    p.ellipse(5, 4.5, 4, 4.2, '#3a8be0');
+    p.ellipse(4, 3.5, 2, 2, '#8fd8ff');
+    p.set(3, 2, WHITE);
+    p.rect(4, 8, 2, 1, '#2a6ab0'); p.set(5, 9, '#e04848');
+  }
+}
+
+class LightningItem extends Item {
+  constructor() { super({ id: 'lightning', name: 'LIGHTNING', desc: 'THROW A BOLT: X3 DAMAGE ON A WET FOE', weight: 6, kind: 'attack', cpuPriority: 6 }); }
+  // Thrown like anything else; every hit it makes is a SHOCK (SHOCKED x3 on WET foes).
+  modifyShot(shot) {
+    shot.capDamage(12, 18);
+    shot.element = 'shock';
+    shot.setLook('lightning', 2);
+    shot.trails.push('spark');
+  }
+  drawIcon(p) {
+    const Y = '#ffd84a';
+    p.rect(5, 0, 3, 1, Y); p.rect(4, 1, 3, 1, Y); p.rect(3, 2, 3, 1, Y); p.rect(2, 3, 6, 1, Y);
+    p.rect(5, 4, 3, 1, Y); p.rect(4, 5, 3, 1, Y); p.rect(3, 6, 2, 1, Y); p.rect(3, 7, 1, 2, Y);
+    p.set(6, 0, WHITE); p.set(4, 3, WHITE);
   }
 }
 
@@ -271,15 +337,20 @@ class ParachuteCombo extends Combo {
 }
 
 class TornadoCombo extends Combo {
-  constructor() { super({ id: 'tornado', name: 'TORNADO!', desc: 'WIND GOES CRAZY MID-FLIGHT', recipe: ['calm', 'fan'], cpuPriority: 1 }); }
-  modifyShot(shot) { shot.windWave = { amp: 14, freq: 0.09 }; }
+  constructor() { super({ id: 'tornado', name: 'TORNADO!', desc: 'LANDS CLOSE? FOE IS LIFTED + DROPPED (25)', recipe: ['calm', 'fan'], cpuPriority: 7 }); }
+  modifyShot(shot) {
+    shot.tornado = { radius: 40, damage: 25 };
+    shot.trails.push('swirl');
+  }
 }
 
 class FireBombCombo extends Combo {
-  constructor() { super({ id: 'firebomb', name: 'FIRE BOMB!', desc: 'BLAST + BURN 7 DMG X2 TURNS', recipe: ['bomb', 'pepper'], cpuPriority: 8 }); }
+  constructor() { super({ id: 'firebomb', name: 'FIRE BOMB!', desc: 'BLAST + SETS THE FLOOR ON FIRE (3 ROUNDS)', recipe: ['bomb', 'pepper'], cpuPriority: 8 }); }
   modifyShot(shot) {
     shot.inflicts = shot.inflicts.filter((i) => i.status !== 'pepper');
-    shot.inflicts.push({ status: 'burn', value: 2 });
+    // Burning patch where it lands: 6 dmg at the start of each turn you stand in it.
+    shot.hazard = { type: 'fire', radius: 36, rounds: 3, damage: 6 };
+    shot.element = 'fire';
     shot.trails.push('fire');
   }
 }
@@ -289,7 +360,86 @@ class FlappyDuckCombo extends Combo {
   modifyShot(shot) { shot.flutter = { amp: 1800, freq: 0.22 }; }
 }
 
+class FrostBombCombo extends Combo {
+  constructor() { super({ id: 'frostbomb', name: 'FROST BOMB!', desc: 'THE BLAST FREEZES TOO', recipe: ['ice', 'bomb'], cpuPriority: 9 }); }
+  modifyShot(shot) {
+    for (const inf of shot.inflicts) if (inf.status === 'frozen') inf.direct = false;
+    shot.setLook('ice', 5);
+  }
+}
+
+class IcebergCombo extends Combo {
+  constructor() { super({ id: 'iceberg', name: 'ICEBERG!', desc: 'GIANT ICE: FREEZES FOR 2 TURNS', recipe: ['ice', 'giant'], cpuPriority: 8 }); }
+  modifyShot(shot) {
+    for (const inf of shot.inflicts) if (inf.status === 'frozen') inf.value = 2;
+    shot.size = Math.max(shot.size, 2.5);
+  }
+}
+
+class SkatingDuckCombo extends Combo {
+  constructor() { super({ id: 'skating', name: 'SKATING DUCK!', desc: 'SLIDES ALONG THE GROUND INTO THEM', recipe: ['ice', 'duck'], cpuPriority: 6 }); }
+  modifyShot(shot) {
+    shot.bounces = 0;
+    shot.slide = { friction: 110 };
+    shot.setLook('duck', 4);
+  }
+}
+
+// =====================================================================
+// Element reactions (a hit meets a status already on the target)
+// =====================================================================
+
+class ShockedReaction extends Reaction {
+  constructor() { super({ id: 'shocked', name: 'SHOCKED!', desc: 'LIGHTNING ON A WET FOE: X3 DAMAGE', icons: ['water', 'lightning'] }); }
+  onHit(game, t, d) {
+    if (d.element !== 'shock' || !t.status.wet) return false;
+    d.amount *= 3;
+    game.removeStatus(t, 'wet');
+    return true;
+  }
+}
+
+class ShatterReaction extends Reaction {
+  constructor() { super({ id: 'shatter', name: 'SHATTER!', desc: 'HIT A FROZEN FOE: X2 DAMAGE, ICE BREAKS', icons: ['ice', 'bomb'] }); }
+  onHit(game, t, d) {
+    if (!('frozen' in t.status) || d.element === 'ice' || d.type === 'burn') return false;
+    d.amount *= 2;
+    game.removeStatus(t, 'frozen');
+    return true;
+  }
+}
+
+class GasReaction extends Reaction {
+  constructor() { super({ id: 'gas', name: 'GAS EXPLOSION!', desc: 'FIRE ON A STINKY FOE: +20 DAMAGE', icons: ['sock', 'pepper'] }); }
+  onHit(game, t, d) {
+    if (d.element !== 'fire' || !t.status.stink) return false;
+    d.amount += 20;
+    game.removeStatus(t, 'stink');
+    return true;
+  }
+}
+
+class FizzleReaction extends Reaction {
+  constructor() { super({ id: 'fizzle', name: 'FIZZLE!', desc: 'WET FOES DO NOT BURN IN FLOOR FIRE', icons: ['water', 'pepper'] }); }
+  onHit(game, t, d) {
+    if (d.type !== 'burn' || !t.status.wet) return false;
+    d.amount = 0;
+    return true;
+  }
+}
+
+class DeepFreezeReaction extends Reaction {
+  constructor() { super({ id: 'deepfreeze', name: 'DEEP FREEZE!', desc: 'FREEZE A WET FOE: +1 FROZEN TURN', icons: ['water', 'ice'] }); }
+  onInflict(game, t, status, value) {
+    if (status !== 'frozen' || !t.status.wet) return value;
+    this.triggered = true;
+    game.removeStatus(t, 'wet');
+    return value + 1;
+  }
+}
+
 // ---------------------------------------------------------------------
-[ShieldStatus, StinkStatus, PepperStatus, BurnStatus].forEach((S) => registerStatus(new S()));
-[DoubleItem, BombItem, CalmItem, ShieldItem, FanItem, GiantItem, DuckItem, SockItem, PepperItem].forEach((I) => registerItem(new I()));
-[NukeCombo, QuackBombCombo, DuckStormCombo, SpicyStinkCombo, DuckzillaCombo, HomingCombo, ParachuteCombo, TornadoCombo, FireBombCombo, FlappyDuckCombo].forEach((C) => registerCombo(new C()));
+[ShieldStatus, StinkStatus, PepperStatus, FrozenStatus, WetStatus].forEach((S) => registerStatus(new S()));
+[DoubleItem, BombItem, CalmItem, ShieldItem, FanItem, GiantItem, DuckItem, SockItem, PepperItem, IceItem, WaterItem, LightningItem].forEach((I) => registerItem(new I()));
+[NukeCombo, QuackBombCombo, DuckStormCombo, SpicyStinkCombo, DuckzillaCombo, HomingCombo, ParachuteCombo, TornadoCombo, FireBombCombo, FlappyDuckCombo, FrostBombCombo, IcebergCombo, SkatingDuckCombo].forEach((C) => registerCombo(new C()));
+[ShockedReaction, ShatterReaction, GasReaction, FizzleReaction, DeepFreezeReaction].forEach((R) => registerReaction(new R()));

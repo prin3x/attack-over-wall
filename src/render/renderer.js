@@ -88,7 +88,17 @@ export class Renderer {
       this.scene.add(m);
       return m;
     });
-    this.status = [[], []];   // per player: list of status visuals ('umbrella', 'stink')
+    this.status = [[], []];
+
+    // frozen: a see-through ice block around the character
+    const iceTex = tex(art.iceBlock);
+    this.iceBlocks = this.players.map(() => {
+      const m = new THREE.Mesh(quad(30, 28, 0.5, 0), new THREE.MeshBasicMaterial({ map: iceTex, transparent: true, opacity: 0.55, depthTest: false }));
+      m.renderOrder = 5.2;
+      m.visible = false;
+      this.scene.add(m);
+      return m;
+    });   // per player: list of status visuals ('umbrella', 'stink')
 
     // projectile + off-screen marker
     this.icons = art.icons;
@@ -147,7 +157,21 @@ export class Renderer {
     this.aim = Array.from({ length: 8 }, (_, k) => dot(2, k === 7 ? 0xffd84a : 0xffffff, 1 - k * 0.07, 7));
 
     // particle pool
-    this.particles = Array.from({ length: 160 }, () => {
+    // Floor hazards (FIRE BOMB): a scorch mark + glow per patch, a row of animated flames, embers.
+    this.hazards = [];
+    this.flameTex = art.flames.map(tex);
+    this.flames = [];   // pool of flame sprites, assigned to hazards in setHazards()
+    this.hazardMeshes = Array.from({ length: 6 }, () => {
+      const scorch = new THREE.Mesh(quad(1, 3, 0.5, 0), new THREE.MeshBasicMaterial({ color: 0x2a1a14, transparent: true, opacity: 0.75, depthTest: false }));
+      const glow = new THREE.Mesh(quad(1, 2, 0.5, 0), new THREE.MeshBasicMaterial({ color: 0xff8a2a, transparent: true, opacity: 0.9, depthTest: false }));
+      scorch.renderOrder = 3;
+      glow.renderOrder = 3.1;
+      scorch.visible = glow.visible = false;
+      this.scene.add(scorch, glow);
+      return { scorch, glow };
+    });
+
+    this.particles = Array.from({ length: 260 }, () => {
       const m = new THREE.Mesh(quad(2, 2), new THREE.MeshBasicMaterial({ color: 0xffffff, depthTest: false }));
       m.renderOrder = 8;
       m.visible = false;
@@ -181,6 +205,11 @@ export class Renderer {
   windup(i) { this.setState(this.players[i], 'windup'); }
   throwAnim(i) { this.setState(this.players[i], 'throw'); }
   hurt(i) { this.setState(this.players[i], 'hurt'); }
+  /** TORNADO: player i is sucked up, spun around and dropped. */
+  lift(i) { this.setState(this.players[i], 'lifted'); }
+
+  /** Victory dance + mocking wiggle after landing a hit. */
+  taunt(i) { this.setState(this.players[i], 'dance'); }
   setResult(winner) {
     this.setState(this.players[winner], 'win');
     this.setState(this.players[1 - winner], 'lose');
@@ -275,9 +304,129 @@ export class Renderer {
       if (trail === 'stink' && frame % 4 === 0) this.burst(x, y, ['#7fd35a', '#a6e07a'], 1, 8, -20);
       if (trail === 'nuke' && frame % 2 === 0) this.burst(x, y, ['#ffd84a', '#7fd35a', '#ffffff'], 1, 15, -10);
       if (trail === 'fire') this.burst(x - this.projDir * 4, y, ['#ff6a2a', '#ffd84a', '#e04848'], 1, 20, 30);
+      if (trail === 'spark' && frame % 2 === 0) this.burst(x, y, ['#ffd84a', '#ffffff'], 2, 40, 0);
+      if (trail === 'drip' && frame % 3 === 0) this.burst(x, y - 3, ['#3a8be0', '#8fd8ff'], 1, 6, 160);
+      if (trail === 'frost' && frame % 2 === 0) this.burst(x, y, ['#bfe9ff', '#ffffff', '#8fd8ff'], 1, 15, 40);
+      if (trail === 'swirl' && frame % 2 === 0) {
+        const r = 7, a = f * 0.5;
+        this.burst(x + Math.cos(a) * r, y + Math.sin(a) * r, ['#e6e8ef', '#b8bccb', '#ffffff'], 1, 12, -15);
+      }
     }
     marker.visible = y > H + 2 && x > 0 && x < W;
     if (marker.visible) marker.position.set(Math.round(x), H - 1, 0);
+  }
+
+  /** Floor hazards to draw: [{ type, x, radius }]. */
+  setHazards(list) {
+    this.hazards = list.map((h) => ({ ...h }));
+    this.hazardMeshes.forEach(({ scorch, glow }, k) => {
+      const h = this.hazards[k];
+      scorch.visible = glow.visible = !!h;
+      if (!h) return;
+      scorch.scale.x = h.radius * 2;
+      glow.scale.x = h.radius * 2 - 4;
+      scorch.position.set(h.x, GROUND_Y - 2, 0);
+      glow.position.set(h.x, GROUND_Y, 0);
+    });
+    // One flame every ~7px along each patch, with random phase/height so it flickers naturally.
+    const wanted = [];
+    for (const h of this.hazards) {
+      const n = Math.max(3, Math.floor((h.radius * 2) / 7));
+      for (let k = 0; k < n; k++) wanted.push({ x: Math.round(h.x - h.radius + (k + 0.5) * ((h.radius * 2) / n)), phase: Math.random() * 3, h: 0.7 + Math.random() * 0.6 });
+    }
+    while (this.flames.length < wanted.length) {
+      const m = sprite(this.flameTex[0], 0.5, 0, 4.5);
+      this.scene.add(m);
+      this.flames.push({ mesh: m });
+    }
+    this.flames.forEach((f, k) => {
+      const w = wanted[k];
+      f.mesh.visible = !!w;
+      if (w) Object.assign(f, w);
+    });
+  }
+
+  /**
+   * TORNADO funnel around the loops: stacked wobbling rings, narrow at the
+   * bottom and wide at the top, covering the box (x0..x1, y0..y1) for `dur` seconds.
+   */
+  vortex(x0, x1, y0, y1, dur) {
+    const cx = (x0 + x1) / 2;
+    const w = Math.max(24, x1 - x0 + 16);
+    const bottom = GROUND_Y + 2;   // a tornado touches the ground
+    const top = y1 + 14;
+    const n = 9;
+    for (let k = 0; k < n; k++) {
+      const u = k / (n - 1);                       // 0 = bottom, 1 = top
+      const m = new THREE.Mesh(
+        new THREE.RingGeometry(0.78, 1, 20),
+        new THREE.MeshBasicMaterial({ color: k % 2 ? 0xc8ccd6 : 0x9aa0b4, transparent: true, depthTest: false }),
+      );
+      m.renderOrder = 5.5;
+      this.scene.add(m);
+      const rx = 4 + u * u * (w / 2);
+      const ry = 2 + u * 4;
+      const y = bottom + (top - bottom) * u;
+      this.effects.push({
+        mesh: m, dur, t: 0,
+        fn: (mesh, kk) => {
+          const t = kk * dur;
+          const grow = Math.min(1, t * 6);
+          mesh.scale.set(rx * grow, ry * grow, 1);
+          mesh.position.set(Math.round(cx + Math.sin(t * 9 + u * 4) * (3 + u * 5)), Math.round(y), 0);
+          mesh.rotation.z = Math.sin(t * 14 + k) * 0.15;
+          mesh.material.opacity = (kk < 0.85 ? 0.75 : (1 - kk) / 0.15 * 0.75);
+        },
+      });
+    }
+    // dust kicked up at the base
+    for (let k = 0; k < 4; k++) setTimeout(() => this.burst(cx, bottom, ['#b88858', '#9a6a3e', '#c8ccd6'], 6, 40, 80), k * 200);
+  }
+
+  /** A jagged bolt from the top of the screen onto player i. */
+  lightning(i) {
+    const p = this.players[i];
+    this.boltAt(p.x, GROUND_Y + 12);
+  }
+
+  /** A jagged lightning bolt from the sky down to (tx, ty). */
+  boltAt(tx, ty) {
+    const p = { x: tx };
+    const x0 = tx + (Math.random() * 30 - 15);
+    let x = x0, y = H + 4;
+    const pts = [[x, y]];
+    while (y > ty + 2) {
+      y -= 12 + Math.random() * 10;
+      x += Math.random() * 18 - 9;
+      pts.push([x, Math.max(y, ty + 2)]);
+    }
+    pts.push([p.x, ty]);
+    for (const [w, color, order] of [[5, 0xffd84a, 8.4], [2, 0xffffff, 8.5]]) {
+      for (let k = 1; k < pts.length; k++) {
+        const [ax, ay] = pts[k - 1], [bx, by] = pts[k];
+        const len = Math.hypot(bx - ax, by - ay);
+        const m = new THREE.Mesh(quad(w, len), new THREE.MeshBasicMaterial({ color, transparent: true, depthTest: false }));
+        m.position.set((ax + bx) / 2, (ay + by) / 2, 0);
+        m.rotation.z = Math.atan2(by - ay, bx - ax) - Math.PI / 2;
+        m.renderOrder = order;
+        this.scene.add(m);
+        this.effects.push({ mesh: m, dur: 0.45, t: 0, fn: (mesh, kk) => { mesh.material.opacity = kk < 0.5 ? (Math.floor(kk * 20) % 2 ? 1 : 0.4) : (1 - kk) * 2; } });
+      }
+    }
+    this.burst(p.x, ty, ['#ffd84a', '#ffffff', '#8fd8ff'], 20, 90);
+    this.addShake(6);
+  }
+
+  /** Puff of steam (fire put out / fizzle). */
+  steam(x, y = GROUND_Y + 2) {
+    this.burst(x, y, ['#ffffff', '#e6e8ef', '#c8ccd6'], 16, 25, -45);
+  }
+
+  /** Ice block bursts into shards (frozen turn is over). */
+  shatter(i) {
+    const p = this.players[i];
+    this.burst(p.x, GROUND_Y + 12, ['#bfe9ff', '#ffffff', '#8fd8ff', '#7cc4ea'], 26, 110);
+    this.addShake(3);
   }
 
   /** Show the lock-on crosshair on player i. */
@@ -391,7 +540,7 @@ export class Renderer {
     this.players.forEach((p, i) => {
       p.t += dt;
       let frame = Math.floor(this.time * 2.5 + i * 0.5) % 2 ? 'idle1' : 'idle0';
-      let ox = 0, oy = 0;
+      let ox = 0, oy = 0, flip = 1, rot = 0;
       switch (p.state) {
         case 'windup': frame = 'windup'; break;
         case 'throw':
@@ -404,18 +553,89 @@ export class Renderer {
           p.mesh.material.color.set(Math.floor(p.t * 14) % 2 ? 0xff7070 : 0xffffff);
           if (p.t > 0.7) this.setState(p, 'idle');
           break;
-        case 'win':
-          frame = 'win';
-          oy = Math.floor(Math.abs(Math.sin(p.t * 6)) * 6);
+        case 'win': {
+          // endless smug dance: hop, cycle poses, wiggle at the loser, a big jump now and then
+          frame = ['win', 'idle1', 'win', 'throw', 'win', 'idle0'][Math.floor(p.t * 7) % 6];
+          const big = p.t % 3 > 2.4;
+          oy = Math.floor(Math.abs(Math.sin(p.t * (big ? 6 : 11))) * (big ? 14 : 5));
+          ox = Math.round(Math.sin(p.t * 3) * 6);
+          flip = Math.floor(p.t * 3) % 2 ? -1 : 1;
+          p.confetti = (p.confetti || 0) - dt;
+          if (p.confetti <= 0) {
+            p.confetti = 0.35;
+            this.burst(p.x + (Math.random() * 40 - 20), GROUND_Y + 40 + Math.random() * 20, ['#ffd84a', '#e04848', '#5fd35a', '#8fd8ff', '#ff8ad8'], 6, 60, 80);
+          }
           break;
+        }
+        case 'lifted': {
+          frame = 'hurt';
+          const t = p.t;
+          if (t < 1.1) {
+            const k = t / 1.1;
+            oy = Math.round((1 - (1 - k) ** 2) * 72);
+            ox = Math.round(Math.sin(t * 14) * (4 + k * 6));
+            rot = t * 16;
+          } else if (t < 1.45) {
+            const k = (t - 1.1) / 0.35;
+            oy = Math.round(72 * (1 - k * k));
+            rot = 0;
+          } else {
+            this.setState(p, 'hurt');
+            this.addShake(7);
+            this.burst(p.x, GROUND_Y + 1, ['#b88858', '#9a6a3e', '#58a83e'], 18, 80);
+            this.onLand?.(this.players.indexOf(p));
+          }
+          break;
+        }
+        case 'dance': {
+          // hop, cycle cheeky poses, and keep turning around to wiggle at the foe
+          frame = ['win', 'idle1', 'win', 'throw'][Math.floor(p.t * 8) % 4];
+          oy = Math.floor(Math.abs(Math.sin(p.t * 12)) * 5);
+          ox = Math.round(Math.sin(p.t * 22));
+          flip = Math.floor(p.t * 4) % 2 ? -1 : 1;
+          if (p.t > 1.6) this.setState(p, 'idle');
+          break;
+        }
         case 'lose':
+          // knocked out: upside down, legs in the air, stars spinning above
           frame = 'hurt';
           p.mesh.material.color.set(0x9a9aa8);
+          rot = Math.PI;
+          oy = 21;
+          p.stars = (p.stars || 0) - dt;
+          if (p.stars <= 0) {
+            p.stars = 0.12;
+            const a = this.time * 6;
+            this.burst(p.x + Math.cos(a) * 8, GROUND_Y + 24 + Math.sin(a) * 2, ['#ffd84a', '#ffffff'], 1, 4, 0);
+          }
           break;
       }
       if (p.mesh.material.map !== p.frames[frame]) p.mesh.material.map = p.frames[frame];
       p.mesh.position.set(Math.round(p.x + ox), GROUND_Y - 1 + oy, 0);
+      p.mesh.scale.x = p.facing * flip;
+      p.mesh.rotation.z = rot;
     });
+
+    // burning floor: flickering glow + rising flames along each patch
+    this.hazards.forEach((h, k) => {
+      const m = this.hazardMeshes[k];
+      if (!m) return;
+      m.glow.material.opacity = 0.6 + Math.sin(this.time * 18 + k) * 0.25;
+      h.acc = (h.acc || 0) + dt * h.radius * 0.5;
+      while (h.acc >= 1) {
+        h.acc -= 1;
+        const fx = h.x + (Math.random() * 2 - 1) * h.radius;
+        this.burst(fx, GROUND_Y + 1, ['#ff6a2a', '#ffd84a', '#e04848', '#ff9a2a'], 1, 10, -70);
+      }
+    });
+
+    for (const f of this.flames) {
+      if (!f.mesh.visible) continue;
+      const t = this.time * 10 + f.phase * 3;
+      f.mesh.material.map = this.flameTex[Math.floor(t) % 3];
+      f.mesh.scale.set(1, f.h * (0.85 + 0.25 * Math.abs(Math.sin(t * 0.7))), 1);
+      f.mesh.position.set(f.x, GROUND_Y - 1, 0);
+    }
 
     // lock-on crosshair: snaps in, then pulses
     if (this.reticle.visible) {
@@ -435,9 +655,25 @@ export class Renderer {
     // statuses: umbrella above head, green stink puffs
     this.players.forEach((p, i) => {
       const st = this.status[i];
+      const ice = this.iceBlocks[i];
+      ice.visible = st.includes('ice');
+      if (ice.visible) {
+        ice.position.set(p.mesh.position.x, GROUND_Y - 1, 0);
+        p.mesh.material.color.set(0xa8dcff);
+        if (Math.random() < 0.05) this.burst(p.x + (Math.random() * 24 - 12), GROUND_Y + 28, ['#ffffff', '#e6f7ff'], 1, 5, 20);
+      } else if (p.state === 'idle') {
+        p.mesh.material.color.set(0xffffff);
+      }
       const u = this.umbrellas[i];
       u.visible = st.includes('umbrella');
       if (u.visible) u.position.set(p.mesh.position.x, GROUND_Y + 25 + Math.round(Math.sin(this.time * 3) * 1), 0);
+      if (st.includes('wet')) {
+        p.wetT = (p.wetT || 0) - dt;
+        if (p.wetT <= 0) {
+          p.wetT = 0.16;
+          this.burst(p.x + (Math.random() * 18 - 9), GROUND_Y + 8 + Math.random() * 12, ['#3a8be0', '#8fd8ff'], 1, 4, 140);
+        }
+      }
       if (st.includes('burn')) {
         p.burnT = (p.burnT || 0) - dt;
         if (p.burnT <= 0) {

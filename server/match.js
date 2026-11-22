@@ -23,8 +23,13 @@ export class Match {
   }
 
   nextTurn() {
-    this.game.startTurn();
+    const ev = this.game.startTurn();
     this.n++;
+    // FROZEN: that player loses the turn; move straight on (clients do the same).
+    if (ev.skipped && this.game.winner === null) {
+      this.game.endTurn();
+      this.nextTurn();
+    }
   }
 
   get state() {
@@ -52,7 +57,8 @@ export class Match {
         if (g.draft) return { error: 'pick an item first' };
         if (!g.useItem(slot)) return { error: 'cannot use that item' };
         this.log.push([seat, { t: 'use', slot }]);
-        return { relay: { t: 'use', slot } };
+        // e.g. LIGHTNING can knock someone out before any throw
+        return g.winner !== null ? { relay: { t: 'use', slot }, turn: this.state } : { relay: { t: 'use', slot } };
       }
       case 'throw': {
         const angle = Number(msg.angle);

@@ -69,6 +69,7 @@ fit();
 
 // ---------- flow ----------
 function startMatch(m, seed, resumeAt = 1, chars = lastChars) {
+  stopGloating();
   mode = m;
   lastChars = chars;
   game = new Game(seed, chars);
@@ -85,6 +86,7 @@ function startMatch(m, seed, resumeAt = 1, chars = lastChars) {
 }
 
 function toMenu() {
+  stopGloating();
   if (net) { net.close(); net = null; }
   phase = 'menu';
   charging = false;
@@ -96,16 +98,20 @@ function toMenu() {
   hud.setActiveItem('');
   renderer.setStatus(0, []);
   renderer.setStatus(1, []);
+  renderer.setHazards([]);
   hud.show('menu');
 }
 
 // ---------- items ----------
 function refreshItems() {
   if (!game) return;
+  renderer.setHazards(game.hazards);
   hud.renderBags(game, phase === 'aim' && !charging && !isCpuTurn());
   game.players.forEach((p, i) => {
     hud.setStatus(i, p);
-    renderer.setStatus(i, Object.keys(p.status).map((id) => STATUSES[id].visual).filter(Boolean));
+    const visuals = Object.keys(p.status).map((id) => STATUSES[id].visual).filter(Boolean);
+    if (game.hazards.some((h) => h.type === 'fire' && game.inHazard(p, h))) visuals.push('burn');
+    renderer.setStatus(i, visuals);
   });
 }
 
@@ -239,7 +245,59 @@ function beginTurn() {
   showPassiveEvents();
   applyServerState();
   refreshItems();
-  if (game.winner !== null) { phase = 'impact'; timer = 1.2; afterThrow = false; }
+  if (game.winner !== null) { phase = 'impact'; timer = 1.2; afterThrow = false; return; }
+  // FROZEN: this player loses the turn. Show it, shatter the ice, move on.
+  if (ev.skipped) {
+    phase = 'skipped';
+    timer = 1.6;
+    hud.showBanner(`${charName(t)} IS FROZEN!`);
+    hud.setControlsVisible(false);
+    renderer.shatter(t);
+    hud.popup(p.x, GROUND_Y + 54, 'TURN SKIPPED!', 'combo');
+  }
+}
+
+// ---------- game over: the winner won't stop gloating ----------
+const LOSER_LINES = ['NOT FAIR...', 'REMATCH!!', 'LAG!!', 'MY PAW SLIPPED', '...', 'I LET YOU WIN'];
+let gloatTimer = null;
+
+function stopGloating() {
+  clearTimeout(gloatTimer);
+  gloatTimer = null;
+}
+
+/** Winner cycles smug victory lines (shuffled); the loser mumbles back now and then. */
+function startGloating(w) {
+  stopGloating();
+  const winner = game.players[w];
+  const loser = game.players[1 - w];
+  const lines = [...CHARACTERS[winner.char].victory].sort(() => Math.random() - 0.5);
+  let k = 0;
+  const next = () => {
+    if (phase !== 'over') return;
+    if (k % 3 === 2) {
+      hud.bubble(loser.x, GROUND_Y + 30, LOSER_LINES[Math.floor(Math.random() * LOSER_LINES.length)]);
+    } else {
+      hud.bubble(winner.x, GROUND_Y + 28, lines[k % lines.length]);
+      sfx.taunt();
+    }
+    k++;
+    gloatTimer = setTimeout(next, 1900);
+  };
+  gloatTimer = setTimeout(next, 600);
+}
+
+/** Character i dances and says something rude (a random line from its Character.taunts). */
+function taunt(i, line) {
+  const p = game.players[i];
+  if (p.hp <= 0) return;
+  const lines = CHARACTERS[p.char].taunts;
+  renderer.taunt(i);
+  setTimeout(() => {
+    if (phase === 'menu') return;
+    hud.bubble(p.x, GROUND_Y + 30, line || lines[Math.floor(Math.random() * lines.length)]);
+    sfx.taunt();
+  }, 250);
 }
 
 /** Popups for character passives that just triggered (NINE LIVES, STICKY PAWS...). */
@@ -254,7 +312,20 @@ function showPassiveEvents() {
     } else if (ev.type === 'steal') {
       hud.popup(p.x, GROUND_Y + 64, `STOLE ${ITEMS[ev.item].name}!`, 'item');
       sfx.pickup();
+    } else if (ev.type === 'reaction') {
+      hud.popup(p.x, GROUND_Y + 74, ev.text, 'react');
+      sfx.combo();
+      if (ev.id === 'shatter') renderer.shatter(ev.idx);
+      if (ev.id === 'shocked') { renderer.lightning(ev.idx); renderer.burst(p.x, GROUND_Y + 12, ['#8fd8ff', '#ffffff'], 20, 60); hud.flash(); }
+      if (ev.id === 'gas') { renderer.explode(p.x, GROUND_Y + 10, 'small'); renderer.burst(p.x, GROUND_Y + 10, ['#7fd35a', '#ff6a2a', '#ffd84a'], 24, 90); }
+      if (ev.id === 'fizzle') { renderer.steam(p.x); sfx.sizzle(); }
+      if (ev.id === 'deepfreeze') renderer.burst(p.x, GROUND_Y + 14, ['#bfe9ff', '#ffffff'], 16, 40, -30);
+    } else if (ev.type === 'doused') {
+      renderer.steam(ev.x);
+      hud.popup(ev.x, GROUND_Y + 40, 'FIRE OUT!', 'item');
+      sfx.sizzle();
     }
+    if (p) hud.setHp(ev.idx, p.hp);
   }
   refreshItems();
 }
@@ -322,8 +393,19 @@ function landEffect(r) {
     default:
       sfx.ground();
   }
-  const label = r.kind === 'boom' && r.style === 'nuke' ? 'NUKED!!' : LABELS[r.kind];
-  const cls = r.kind === 'boom' ? 'boom' : r.kind === 'crit' ? 'crit' : r.damages.length ? '' : 'miss';
+  // Element landings: water splashes, lightning strikes from the sky.
+  if (r.element === 'water' && r.kind !== 'out') {
+    renderer.burst(r.x, Math.max(r.y, GROUND_Y + 2), ['#3a8be0', '#8fd8ff', '#ffffff'], 26, 90);
+    sfx.splash();
+  }
+  if (r.element === 'shock' && r.kind !== 'out') {
+    renderer.boltAt(r.x, Math.max(r.y, GROUND_Y + 1));
+    hud.flash();
+    sfx.zap();
+  }
+  const twister = r.lift?.length > 0;
+  const label = r.kind === 'boom' && r.style === 'nuke' ? 'NUKED!!' : twister && r.kind !== 'hit' && r.kind !== 'crit' ? 'TWISTER!' : LABELS[r.kind];
+  const cls = r.kind === 'boom' || twister ? 'boom' : r.kind === 'crit' ? 'crit' : r.damages.length ? '' : 'miss';
   hud.popup(lx, Math.min(H - 30, r.y + 14), label, cls);
 }
 
@@ -353,17 +435,36 @@ function impact() {
     }
     if (total[i] > 0) {
       hud.setHp(i, p.hp);
-      renderer.hurt(i);
+      if (!flights.some((f) => f.result.lift?.includes(i))) renderer.hurt(i);
       hud.popup(p.x, GROUND_Y + 34, `-${total[i]}`, 'dmg');
       [...inflicted[i]].forEach((id, k) => hud.popup(p.x, GROUND_Y + 44 + k * 8, STATUSES[id].label, 'stink'));
     }
   });
+  // TORNADO: twister at the landing spot; anyone caught goes for a ride.
+  let lifted = false;
+  for (const { result } of flights) {
+    if (!result.lift) continue;
+    if (game.shot.tornado && result.kind !== 'out') {
+      renderer.vortex(result.x - 10, result.x + 10, GROUND_Y + 30, GROUND_Y + 100, 1.7);
+      sfx.whoosh();
+    }
+    for (const i of result.lift) {
+      renderer.lift(i);
+      hud.popup(game.players[i].x, GROUND_Y + 64, 'WHEEEE!', 'item');
+      lifted = true;
+    }
+  }
   if (total[game.turn] > 0) hud.popup(game.current.x, GROUND_Y + 54, 'OOPS!', 'item');
+  // Trash talk: the hitter dances and mocks. Hurt yourself? The other side laughs instead.
+  const foe = 1 - game.turn;
+  if (total[foe] > 0) taunt(game.turn);
+  else if (total[game.turn] > 0) taunt(foe, 'HAHAHA!');
+  else if (blocked[foe]) taunt(foe, 'NOPE!');
   showPassiveEvents();
   refreshItems();
   phase = 'impact';
   afterThrow = true;
-  timer = flights.some((f) => f.result.style === 'nuke' && f.result.kind === 'boom') ? 2.4 : 1.2;
+  timer = flights.some((f) => f.result.style === 'nuke' && f.result.kind === 'boom') ? 2.4 : lifted ? 2.0 : 1.2;
 }
 
 function afterImpact() {
@@ -389,6 +490,7 @@ function afterImpact() {
     hud.hideBanner();
     hud.setActiveItem('');
     renderer.setResult(w);
+    startGloating(w);
     hud.setControlsVisible(false);
     const wc = CHARACTERS[game.players[w].char];
     if (mode === 'cpu') hud.setOverText(w === 0 ? 'YOU WIN!' : 'YOU LOSE', w === 0 ? `GOOD ${wc.animal}!` : `${charName(w)} RULES THE YARD`);
@@ -535,9 +637,21 @@ function update(dt) {
       // TORNADO: show the wind swinging on the flag/clouds while it flies.
       const ww = game.shot.windWave;
       if (ww) renderer.setWind(game.wind + ww.amp * Math.sin(flight.f * ww.freq));
+      // TORNADO: the flag thrashes while the throw is in the vortex.
+      const vo = game.shot.vortex;
+      if (vo) renderer.setWind(flight.f >= vo.start && flight.f < vo.start + vo.loops * vo.period ? 10 * Math.sin(flight.f * 0.6) : game.wind);
       flight.flights.forEach(({ points: pts, result }, k) => {
         for (; flight.seen[k] <= Math.min(i, pts.length - 1); flight.seen[k]++) {
           const q = pts[flight.seen[k]];
+          if (q.vortex && game.shot.vortex) {
+            // Funnel around the whole looping part of this flight.
+            const vo = game.shot.vortex;
+            const start = flight.seen[k];
+            const loop = pts.slice(start, start + vo.loops * vo.period);
+            const xs = loop.map((pt) => pt.x), ys = loop.map((pt) => pt.y);
+            renderer.vortex(Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys), (vo.loops * vo.period) / 60 + 0.3);
+            sfx.whoosh?.();
+          }
           if (q.lock) {
             const foe = 1 - game.turn;
             renderer.lockOn(foe);
@@ -574,6 +688,15 @@ function update(dt) {
     case 'impact':
       timer -= dt;
       if (timer <= 0) afterImpact();
+      break;
+
+    case 'skipped':
+      timer -= dt;
+      if (timer <= 0) {
+        hud.hideBanner();
+        game.endTurn();
+        beginTurn();
+      }
       break;
   }
 }
@@ -926,5 +1049,5 @@ if (import.meta.env.DEV) {
   if (new URLSearchParams(location.search).has('demo')) window.__demo = true;
   const chars = new URLSearchParams(location.search).get('chars')?.split(',').filter((c) => CHARACTERS[c]);
   if (auto === 'cpu' || auto === 'local') startMatch(auto, undefined, 1, chars?.length === 2 ? chars : DEFAULT_CHARACTERS);
-  window.__debug = { get game() { return game; }, get phase() { return phase; }, get me() { return me; }, get turnNo() { return turnNo; }, throw: (pw) => throwShot(pw), useItem: (s) => useItem(s), redraft: (offers, bag) => { game.current.items = bag; game.draft = offers; hud.hideBanner(); startDraft(); } };
+  window.__debug = { renderer, get game() { return game; }, get phase() { return phase; }, get me() { return me; }, get turnNo() { return turnNo; }, throw: (pw) => throwShot(pw), useItem: (s) => useItem(s), redraft: (offers, bag) => { game.current.items = bag; game.draft = offers; hud.hideBanner(); startDraft(); } };
 }

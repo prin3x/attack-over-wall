@@ -1,5 +1,5 @@
 import { W, H, MAX_WIND } from '../core/constants.js';
-import { ITEMS, STATUSES, COMBOS, BAG_SIZE } from '../core/items/index.js';
+import { ITEMS, STATUSES, COMBOS, REACTIONS, BAG_SIZE } from '../core/items/index.js';
 import { CHARACTERS } from '../core/characters/index.js';
 
 const $ = (id) => document.getElementById(id);
@@ -179,7 +179,7 @@ export class Hud {
     };
     for (const [id, value] of Object.entries(p.status)) {
       const st = STATUSES[id];
-      add(st.icon, st.showCount ? `${value}` : '');
+      add(st.icon, st.showCount && value > 0 ? `${value}` : '');
     }
   }
 
@@ -279,13 +279,26 @@ export class Hud {
   showBook() {
     const list = $('bookList');
     list.innerHTML = '';
-    for (const c of Object.values(COMBOS)) {
+    const heading = (text) => {
+      const h = document.createElement('div');
+      h.className = 'book-heading';
+      h.textContent = text;
+      list.append(h);
+    };
+    heading('COMBOS - USE IN THE SAME TURN');
+    const entries = [
+      ...Object.values(COMBOS).map((c) => ({ ...c, icons: c.recipe, sep: '+' })),
+      null,
+      ...Object.values(REACTIONS).map((r) => ({ name: r.name, desc: r.desc, icons: r.icons, sep: '>' })),
+    ];
+    for (const c of entries) {
+      if (!c) { heading('REACTIONS - SET UP NOW, CASH IN LATER'); continue; }
       const row = document.createElement('div');
       row.className = 'book-row';
       const recipe = document.createElement('span');
       recipe.className = 'recipe';
-      c.recipe.forEach((id, k) => {
-        if (k) recipe.append('+');
+      c.icons.forEach((id, k) => {
+        if (k) recipe.append(c.sep);
         recipe.append(this.iconImg(id));
       });
       const text = document.createElement('span');
@@ -312,6 +325,19 @@ export class Hud {
   setLobbyMsg(text) { $('lobbyMsg').textContent = text; }
 
   setRematchVisible(v) { $('rematch').classList.toggle('hidden', !v); this.sel = 0; this.highlight(); }
+
+  /** Speech bubble above a character (x, y in game pixels, y = bubble bottom). */
+  bubble(x, y, text) {
+    const el = document.createElement('div');
+    el.className = 'bubble';
+    el.textContent = text;
+    el.style.top = `${H - y}px`;
+    this.popups.appendChild(el);
+    const half = el.offsetWidth / 2 + 2;
+    el.style.left = `${Math.max(half, Math.min(W - half, x))}px`;
+    el.style.setProperty('--tail', `${Math.round(x - Math.max(half, Math.min(W - half, x)))}px`);
+    setTimeout(() => el.remove(), 1700);
+  }
 
   setOverText(title, sub) {
     $('overTitle').textContent = title;

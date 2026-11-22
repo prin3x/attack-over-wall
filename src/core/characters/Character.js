@@ -12,7 +12,7 @@ const CONTROL = [0, 1.3, 1.15, 1, 0.85, 0.7];    // power-bar speed (lower = eas
  * sprites, game rules, CPU and online server all read from the registry.
  */
 export class Character {
-  constructor({ id, name, animal, stats, passive, projectile, colors }) {
+  constructor({ id, name, animal, stats, passive, projectile, colors, taunts = ['HAHA!'], victory = ['TOO EASY!'] }) {
     this.id = id;
     this.name = name;            // shown everywhere, caps (pixel font)
     this.animal = animal;        // e.g. 'DOG'
@@ -20,6 +20,8 @@ export class Character {
     this.passive = passive;      // { name, desc }
     this.projectile = projectile; // { rows: [...], palette: {...} } default throw sprite
     this.colors = colors;        // { main } used for UI accents
+    this.taunts = taunts;        // trash talk shown in a bubble while dancing after a hit
+    this.victory = victory;      // extra-smug lines cycled while dancing on the game-over screen
   }
 
   get maxHp() { return HP[this.stats.hp]; }

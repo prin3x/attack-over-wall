@@ -75,6 +75,12 @@ Object.assign(sfx, {
   },
   combo() { [523, 784, 1047, 1568].forEach((f, i) => tone({ f, d: 0.1, v: 0.09, delay: i * 0.05 })); },
   quack() { tone({ f: 700, f2: 400, d: 0.12, type: 'sawtooth', v: 0.08 }); tone({ f: 650, f2: 380, d: 0.1, type: 'sawtooth', v: 0.06, delay: 0.1 }); },
+  whoosh() { noise({ d: 1.2, v: 0.25, cutoff: 900 }); tone({ f: 200, f2: 600, d: 0.6, type: 'sawtooth', v: 0.04 }); tone({ f: 600, f2: 180, d: 0.6, type: 'sawtooth', v: 0.04, delay: 0.6 }); },
+  taunt() { [784, 659, 880, 659].forEach((f, i) => tone({ f, d: 0.11, type: 'triangle', v: 0.1, delay: i * 0.12 })); },
+  freeze() { [1568, 1319, 1047, 1568].forEach((f, i) => tone({ f, d: 0.08, type: 'triangle', v: 0.08, delay: i * 0.05 })); noise({ d: 0.3, v: 0.12, cutoff: 6000 }); },
+  zap() { noise({ d: 0.35, v: 0.45, cutoff: 7000 }); tone({ f: 1800, f2: 120, d: 0.3, type: 'sawtooth', v: 0.12 }); },
+  splash() { noise({ d: 0.3, v: 0.3, cutoff: 1800 }); tone({ f: 500, f2: 200, d: 0.15, type: 'sine', v: 0.1 }); },
+  sizzle() { noise({ d: 0.6, v: 0.2, cutoff: 5000 }); },
   lock() { [0, 0.09, 0.18].forEach((d) => tone({ f: 1760, d: 0.06, type: 'square', v: 0.07, delay: d })); },
   deny() { tone({ f: 150, d: 0.08, v: 0.08 }); },
 });

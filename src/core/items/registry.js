@@ -7,6 +7,13 @@ export const ITEMS = {};
 export const STATUSES = {};
 /** id -> Combo instance */
 export const COMBOS = {};
+/** id -> Reaction instance */
+export const REACTIONS = {};
+
+export function registerReaction(r) {
+  if (REACTIONS[r.id]) throw new Error(`Duplicate reaction id: ${r.id}`);
+  REACTIONS[r.id] = r;
+}
 
 export function registerItem(item) {
   if (ITEMS[item.id]) throw new Error(`Duplicate item id: ${item.id}`);

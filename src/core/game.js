@@ -4,7 +4,7 @@ import {
 } from './constants.js';
 import { mulberry32 } from './rng.js';
 import { Shot } from './shot.js';
-import { ITEMS, STATUSES, COMBOS, BAG_SIZE, rollDraft } from './items/index.js';
+import { ITEMS, STATUSES, COMBOS, REACTIONS, BAG_SIZE, rollDraft } from './items/index.js';
 import { CHARACTERS, DEFAULT_CHARACTERS } from './characters/index.js';
 
 /**
@@ -35,6 +35,7 @@ export class Game {
       };
     });
     this.events = [];     // passive triggers for the UI (nine lives, steals...)
+    this.hazards = [];    // things burning/lying on the floor: { type, x, radius, damage, left }
     this.turn = 0;
     this.winner = null;
     this.wind = 0;
@@ -68,6 +69,7 @@ export class Game {
       wind: this.wind,
       winner: this.winner,
       draft: this.draft ? [...this.draft] : null,
+      hazards: this.hazards.map((h) => ({ ...h })),
       players: this.players.map((p) => ({ hp: p.hp, angle: p.angle, items: [...p.items], status: { ...p.status }, flags: { ...p.flags } })),
     };
   }
@@ -78,6 +80,7 @@ export class Game {
     this.wind = s.wind;
     this.winner = s.winner;
     this.draft = s.draft ? [...s.draft] : null;
+    this.hazards = (s.hazards || []).map((h) => ({ ...h }));
     s.players.forEach((sp, i) => {
       const p = this.players[i];
       p.hp = sp.hp;
@@ -95,6 +98,19 @@ export class Game {
   /** Power-bar speed multiplier: the character's CONTROL stat x statuses (e.g. pepper). */
   powerRate(p) {
     return Object.keys(p.status).reduce((m, id) => m * STATUSES[id].powerRate(this, p), this.charOf(p).controlRate);
+  }
+
+  /** Is player p standing inside floor hazard h? */
+  inHazard(p, h) {
+    const bx = p.x + BODY.dx * p.facing;
+    return Math.abs(bx - h.x) <= h.radius + BODY.r * this.charOf(p).sizeScale * 0.5;
+  }
+
+  /** Run element reactions on a hit about to land (may change d.amount and statuses). */
+  react(p, d) {
+    for (const r of Object.values(REACTIONS)) {
+      if (r.onHit(this, p, d)) this.events.push({ type: 'reaction', idx: this.players.indexOf(p), text: r.name, id: r.id });
+    }
   }
 
   damage(idx, amount) {
@@ -120,14 +136,29 @@ export class Game {
     this.used = [];
     this.shotsLeft = 1;
     const effects = [];
+    let skipped = false;
     for (const id of Object.keys(p.status)) {
       const fx = STATUSES[id].onTurnStart(this, p);
       if (!fx) continue;
       if (fx.damage) fx.damage = this.damage(this.turn, fx.damage);
+      if (fx.skip) skipped = true;   // e.g. FROZEN: this turn is lost
       effects.push(fx);
     }
-    this.draft = p.items.length < BAG_SIZE ? rollDraft(this.rng, this.charOf(p).draftSize) : null;
-    return { effects, draft: this.draft };
+    // Floor hazards: hurt you if you're standing in one, then tick down (each lasts `rounds` x 2 turns).
+    for (const h of this.hazards) {
+      if (this.inHazard(p, h)) {
+        const d = { idx: this.turn, amount: h.damage, type: 'burn', element: 'fire' };
+        this.react(p, d);
+        effects.push(d.amount > 0
+          ? { damage: this.damage(this.turn, d.amount), text: 'BURN!', cls: 'dmg', hazard: h.type }
+          : { text: 'FIZZLE!', cls: 'item', hazard: h.type });
+      }
+      h.left--;
+    }
+    this.hazards = this.hazards.filter((h) => h.left > 0);
+    // A skipped turn gets no draft (keeps the RNG in step on every machine).
+    this.draft = !skipped && p.items.length < BAG_SIZE ? rollDraft(this.rng, this.charOf(p).draftSize) : null;
+    return { effects, draft: this.draft, skipped };
   }
 
   pickDraft(choice) {
@@ -192,7 +223,15 @@ export class Game {
     const me = this.current;
     const foe = this.opponent;
     const before = foe.hp;
-    for (const f of flights) this.applyResult(f.result);
+    for (const f of flights) {
+      this.applyResult(f.result);
+      if (f.result.hazard) this.hazards.push({ ...f.result.hazard });
+      if (f.result.element === 'water' && f.result.kind !== 'out') {
+        const before = this.hazards.length;
+        this.hazards = this.hazards.filter((h) => !(h.type === 'fire' && Math.abs(h.x - f.result.x) <= h.radius + 24));
+        if (this.hazards.length < before) this.events.push({ type: 'doused', x: f.result.x });
+      }
+    }
     // Passive: something that triggers when my volley actually hurt the foe (e.g. STICKY PAWS).
     if (foe.hp < before) {
       const ev = this.charOf(me).onVolleyHit(this, me, foe);
@@ -215,11 +254,15 @@ export class Game {
     const ww = shot.windWave;
     const fl = shot.flutter;
     const hm = shot.homing;
+    const vx0 = shot.vortex;
+    const vortexEnd = vx0 ? vx0.start + vx0.loops * vx0.period : -1;
+    let sliding = false;
     const foe = this.players[1 - idx];
     const foeX = foe.x + BODY.dx * foe.facing;
     const foeY = GROUND_Y + BODY.dy;
     const mult = this.charOf(p).damageMult;   // POWER stat
     const dmg = (n) => Math.max(1, Math.round(n * mult));
+    const element = shot.element || undefined;
     let locked = false;
     const points = [{ x, y }];
     const blasts = [];   // extra explosions along the way (QUACK BOMB bounces)
@@ -227,10 +270,28 @@ export class Game {
       points.push({ x, y });
       if (shot.explosion) {
         kind = 'boom';
-        damages = this.blast(idx, x, y, shot.blast, mult);
+        damages = this.blast(idx, x, y, shot.blast, mult).map((d) => ({ ...d, element }));
       }
       for (const b of blasts) damages = damages.concat(b.damages);
-      return { points, result: { kind, x, y, damages, inflicts: shot.inflicts, style: shot.explosion?.style || 'bomb', blasts } };
+      // TORNADO: lift whoever stands close to the landing spot and drop them.
+      const lift = [];
+      if (shot.tornado && kind !== 'out') {
+        damages = damages.slice();
+        for (let i = 0; i < 2; i++) {
+          if (i === idx) continue;
+          const t = this.players[i];
+          const bx = t.x + BODY.dx * t.facing;
+          if (Math.abs(x - bx) <= shot.tornado.radius + BODY.r * this.charOf(t).sizeScale) {
+            damages.push({ idx: i, amount: dmg(shot.tornado.damage), type: 'fall' });
+            lift.push(i);
+          }
+        }
+      }
+      // Leave a floor hazard where it landed (not if it flew off screen).
+      const hazard = shot.hazard && kind !== 'out' && x > 0 && x < W
+        ? { type: shot.hazard.type, x: Math.round(x), radius: shot.hazard.radius, damage: shot.hazard.damage, left: shot.hazard.rounds * 2 }
+        : null;
+      return { points, result: { kind, x, y, damages, inflicts: shot.inflicts, style: shot.explosion?.style || 'bomb', blasts, hazard, lift, element } };
     };
 
     for (let step = 0; step < 1200; step++) {
@@ -238,7 +299,21 @@ export class Game {
         locked = true;
         points.push({ x, y, lock: true });
       }
-      if (locked) {
+      const inVortex = vx0 && step >= vx0.start && step < vortexEnd;
+      if (sliding) {
+        // On the ice: glide along the ground, slowing down.
+        vy = 0;
+        y = GROUND_Y;
+        const slow = shot.slide.friction * DT;
+        vx = Math.abs(vx) <= slow ? 0 : vx - Math.sign(vx) * slow;
+      } else if (inVortex) {
+        // Spin the velocity (loops curl upward whichever way you throw), no gravity, drift forward.
+        const a = ((2 * Math.PI) / vx0.period) * p.facing;
+        const c = Math.cos(a), s = Math.sin(a);
+        [vx, vy] = [vx * c - vy * s, vx * s + vy * c];
+        x += vx0.drift * p.facing * DT;
+        if (step === vx0.start) points.push({ x, y, vortex: true });
+      } else if (locked) {
         // Steer toward the target: rotate velocity by at most `turn` per step, fixed speed.
         const cur = Math.atan2(vy, vx);
         let diff = Math.atan2(foeY - y, foeX - x) - cur;
@@ -258,13 +333,23 @@ export class Game {
       for (let i = 0; i < 2; i++) {
         if (i === idx && step < 30) continue;
         const kind = hitTest(this.players[i], this.charOf(this.players[i]).sizeScale, x, y, grow);
-        if (kind) return done(kind, [{ idx: i, amount: dmg(shot.damage[kind]), type: 'direct' }]);
+        if (kind) return done(kind, [{ idx: i, amount: dmg(shot.damage[kind]), type: 'direct', element }]);
       }
 
       if (x >= WALL.x0 - grow / 2 && x <= WALL.x1 + grow / 2 && y <= WALL.y1 + grow / 2) return done('wall');
 
-      if (y <= GROUND_Y) {
+      if (sliding && Math.abs(vx) < 12) {
+        // stopped sliding: settle like a normal landing (splash may still reach)
+        y = GROUND_Y - 0.001;
+      }
+      if (y <= GROUND_Y && !(sliding && Math.abs(vx) >= 12)) {
         y = GROUND_Y;
+        if (shot.slide && !sliding) {
+          sliding = true;
+          vx *= 0.9;
+          points.push({ x, y, bounce: true });
+          continue;
+        }
         if (bouncesLeft > 0) {
           bouncesLeft--;
           vy = -vy * 0.6;
@@ -278,7 +363,7 @@ export class Game {
         const t = this.players[1 - idx];
         const d = Math.abs(x - (t.x + BODY.dx * t.facing));
         const r = shot.splashRadius + BODY.r * (this.charOf(t).sizeScale - 1);   // bigger animals get splashed more
-        if (d < r) damages.push({ idx: 1 - idx, amount: dmg(shot.splashMax * (1 - d / r)), type: 'splash' });
+        if (d < r) damages.push({ idx: 1 - idx, amount: dmg(shot.splashMax * (1 - d / r)), type: 'splash', element });
         return done(damages.length ? 'splash' : 'ground', damages);
       }
 
@@ -317,13 +402,21 @@ export class Game {
         d.blockedBy = blocker;
         continue;
       }
-      // Defender's passive may reduce it (e.g. SHELL halves splash/blasts).
+      // Element reactions (SHOCKED, SHATTER, GAS EXPLOSION...), then the defender's passive.
+      this.react(p, d);
       d.amount = this.charOf(p).modifyIncoming(this, p, d);
       this.damage(d.idx, d.amount);
       d.inflicted = [];
       if (d.idx === this.turn) continue;   // your own nuke doesn't stink you
-      for (const { status, value } of result.inflicts) {
-        this.addStatus(p, status, value);
+      for (const { status, value, direct } of result.inflicts) {
+        if (direct && d.type !== 'direct') continue;   // e.g. ICE CUBE only freezes on a direct hit
+        let v = value;
+        for (const r of Object.values(REACTIONS)) {
+          r.triggered = false;
+          v = r.onInflict(this, p, status, v);
+          if (r.triggered) this.events.push({ type: 'reaction', idx: d.idx, text: r.name, id: r.id });
+        }
+        this.addStatus(p, status, Math.max(v, p.status[status] || 0));
         d.inflicted.push(status);
       }
     }

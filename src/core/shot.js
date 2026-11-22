@@ -14,7 +14,9 @@ export class Shot {
                                //   self: also hurts the thrower; fixed: ignore GIANT scaling; style: visual
     this.size = 1;             // 2 = GIANT (bigger sprite, hitbox, splash, blast)
     this.shots = 1;            // throws this turn
-    this.inflicts = [];        // statuses applied to whoever takes damage: [{ status, value }]
+    this.inflicts = [];        // statuses applied to whoever takes damage: [{ status, value, direct? }]
+                               //   direct: only on a direct hit (not splash / blast)
+    this.element = null;       // 'fire' | 'ice' | 'water' | 'shock': tags every hit for reactions
     this.look = 'normal';      // sprite: 'normal' | 'bomb' | 'duck' | 'sock' ...
     this.lookRank = 0;
     this.trails = [];          // particle trails while flying: 'fuse' | 'stink'
@@ -27,7 +29,14 @@ export class Shot {
     this.windScale = 1;        // 0 = ignores wind, 3 = blown around
     this.speedScale = 1;       // launch speed multiplier
     this.windWave = null;      // { amp, freq }: wind swings back and forth during flight
+    this.tornado = null;       // { radius, damage }: a twister touches down where it lands; anyone within
+                               //   `radius` px is lifted up and dropped for `damage` (type 'fall')
+    this.slide = null;         // { friction }: on landing it slides along the ground instead of stopping
+    this.vortex = null;        // { start, loops, period, drift }: after `start` steps the throw does
+                               //   `loops` loop-de-loops (`period` steps each), drifting `drift` px/s forward
     this.flutter = null;       // { amp, freq }: flaps up and down
+    this.hazard = null;        // { type, radius, rounds, damage }: leaves something on the floor where it lands
+                               //   (e.g. FIRE BOMB fire). Hurts whoever stands in it at their turn start.
     this.homing = null;        // { range, turn, speed }: locks on when within `range` px of the foe,
                                //   then steers (max `turn` radians/step) at `speed`, ignoring gravity & wind
   }

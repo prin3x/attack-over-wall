@@ -149,7 +149,7 @@ button.tiny { font-size: 6px; padding: 1px 3px; }
 }
 @keyframes blink { 50% { opacity: 0; } }
 
-#popups { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+#popups { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 5; }
 .popup {
   position: absolute;
   transform: translate(-50%, -100%);
@@ -298,7 +298,10 @@ img { image-rendering: pixelated; }
 
 #book { background: rgba(18, 12, 28, 0.85); gap: 3px; }
 .book-title { margin: 0 0 2px; font-size: 8px; color: var(--gold); }
-#bookList { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px; width: 304px; }
+#bookList { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px; width: 304px; max-height: 136px; overflow-y: auto; padding-right: 2px; }
+.book-heading { grid-column: 1 / -1; font-size: 5px; color: #8fd8ff; margin: 3px 0 1px; }
+#bookList::-webkit-scrollbar { width: 3px; }
+#bookList::-webkit-scrollbar-thumb { background: var(--gold); }
 .book-row { display: flex; align-items: center; gap: 3px; height: 22px; }
 .recipe { display: flex; align-items: center; gap: 1px; font-size: 5px; color: var(--gold); flex: none; }
 .recipe img { width: 12px; height: 12px; }
@@ -340,3 +343,39 @@ img { image-rendering: pixelated; }
 
 /* 4-card draft (GOOD BOY) */
 #cards.four .card { width: 70px; }
+
+/* ---- Taunt speech bubble ---- */
+.bubble {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  padding: 3px 4px;
+  font-size: 5px;
+  line-height: 1.2;
+  white-space: nowrap;
+  color: var(--ink);
+  text-shadow: none;
+  background: var(--white);
+  border: 1px solid var(--ink);
+  box-shadow: 1px 1px 0 var(--ink);
+  animation: bubble 1.7s steps(10) forwards;
+}
+.bubble::after {
+  content: '';
+  position: absolute;
+  bottom: -4px;
+  left: calc(50% + var(--tail, 0px) - 2px);
+  width: 4px;
+  height: 4px;
+  background: var(--white);
+  border-right: 1px solid var(--ink);
+  border-bottom: 1px solid var(--ink);
+  transform: skewX(-30deg);
+}
+@keyframes bubble {
+  0% { opacity: 0; margin-top: 4px; }
+  10% { opacity: 1; margin-top: 0; }
+  85% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.popup.react { color: #8fd8ff; font-size: 12px; text-shadow: 2px 2px 0 #2a6ab0, 3px 3px 0 var(--ink); animation-duration: 1.6s; }

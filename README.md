@@ -36,15 +36,15 @@ online: both pick secretly and are revealed when the match starts). Mirror match
 | Animal | HP | POW | SIZE | CTRL | Passive |
 | --- | --- | --- | --- | --- | --- |
 | BISCUIT (dog) | 3 | 4 | 3 | 3 | GOOD BOY: drafts show 4 cards |
-| MISO (cat) | 1 | 3 | 1 | 4 | NINE LIVES: survives one knockout with 1 HP |
-| SHELLY (turtle) | 5 | 2 | 4 | 2 | SHELL: half damage from splash and blasts |
+| MISO (cat) | 1 | 3 | 2 | 4 | NINE LIVES: survives one knockout with 1 HP |
+| SHELLY (turtle) | 4 | 4 | 4 | 3 | SHELL: half damage from splash (near misses) |
 | BANDIT (raccoon) | 2 | 3 | 2 | 3 | STICKY PAWS: each hit steals a random item from the foe |
 
 Stats are 1-5: **HP** 70-130, **POW** x0.8-x1.2 damage, **SIZE** hitbox x0.8-x1.3 (big = tanky but easy to hit),
 **CTRL** power-bar speed (high = slower bar, easier timing; the CPU's aim follows it too).
 
 Balance is checked with a headless simulator: hundreds of CPU vs CPU matches per pairing
-(items and combos included). Current overall win rates are 47-54% for every animal.
+(items and combos included). Current overall win rates are 46-53% for every animal.
 
 ### Adding a character
 
@@ -87,9 +87,12 @@ with your bag say `MAKES ...!`, and the main menu has a **COMBO BOOK** listing e
 | GIANT + RUBBER DUCK | DUCKZILLA | 3x duck, 4 bounces, 30 damage |
 | BIG FAN + BOMB | HOMING MISSILE | Ignores wind; if it gets within radar range of the foe it locks on and always hits |
 | UMBRELLA + BOMB | PARACHUTE BOMB | Floats down slowly, wind x3 (uses up your umbrella) |
-| CALM + BIG FAN | TORNADO | Wind swings back and forth mid-flight |
-| BOMB + PEPPER | FIRE BOMB | Blast + burn 7 damage for 2 turns |
+| CALM + BIG FAN | TORNADO | A twister touches down where it lands: a foe within ~40px is lifted up and dropped (25 damage) |
+| BOMB + PEPPER | FIRE BOMB | Blast + sets the floor on fire for 3 rounds: 6 damage each turn you stand in it |
 | BIG FAN + RUBBER DUCK | FLAPPY DUCK | The duck flaps up and down |
+| ICE CUBE + BOMB | FROST BOMB | The blast freezes too (no direct hit needed) |
+| ICE CUBE + GIANT | ICEBERG | Giant ice: freezes for 2 turns |
+| ICE CUBE + RUBBER DUCK | SKATING DUCK | Slides along the ground into the target |
 
 Combos stack with each other too: BOMB + GIANT + DOUBLE = two nukes, BOMB + DUCK + DOUBLE = five exploding ducks.
 If a NUKE knocks out both players, the thrower loses.
@@ -102,6 +105,7 @@ If a NUKE knocks out both players, the thrower loses.
 | RUBBER DUCK | Bounces twice (15 dmg / 22 crit) |
 | STINKY SOCK | 12 dmg + stink: -4 HP at the start of the target's next 3 turns |
 | PEPPER | Thrown: if it hits, the target sneezes next turn (power bar 2.2x faster) |
+| ICE CUBE | Direct hit freezes the foe: their next turn is skipped |
 | UMBRELLA | Blocks the next hit |
 | CALM | Wind becomes 0 |
 | BIG FAN | Strong tailwind toward the enemy |
@@ -152,7 +156,7 @@ registerCombo(new BananaSplitCombo());
 
 It shows up in the COMBO BOOK, draft hints, in-game `TRY +...` hints and the CPU's plans automatically.
 Useful `Shot` knobs for combos: `explosion` (`self`, `style: 'nuke'`, `fixed`), `bounceBlast`, `spread`,
-`gravityScale`, `windScale`, `speedScale`, `windWave`, `flutter`, `size`. Combos can also draw an icon
+`gravityScale`, `windScale`, `speedScale`, `windWave`, `vortex`, `flutter`, `homing`, `hazard`, `size`. Combos can also draw an icon
 (`drawIcon`) and fly it with `shot.setLook(id, rank)`, and react with `onTrigger(game, user, foe)`.
 
 Lasting effects are `Status` classes (`src/core/items/Status.js`) with `onTurnStart`, `onTurnEnd`,
