@@ -7,8 +7,10 @@ Biscuit the dog and Miso the cat lob bones and fish bones over the backyard fenc
 
 ```bash
 npm install
-npm run dev      # http://localhost:5173
-npm run build    # static build in dist/
+npm run dev          # game at http://localhost:5173 (CPU / same-PC modes)
+npm run dev:server   # online server at :8787 (run alongside `npm run dev` for online play)
+npm run build        # static build in dist/
+npm run deploy       # build + deploy game and online server to Cloudflare
 ```
 
 ## How to play
@@ -84,7 +86,8 @@ Lasting effects are `Status` classes (`src/core/items/Status.js`) with `onTurnSt
 
 - **1P vs CPU**: the CPU starts sloppy and gets more accurate each turn.
 - **2P same PC**: hot-seat, same controls for both players.
-- **2P online**: planned (see below).
+- **2P online**: CREATE ROOM gives a 5-letter code and an invite link (`?room=CODE`); your friend
+  joins with the code or the link. You can watch each other aim live. Refreshing the page rejoins the match.
 
 ## Project layout
 
@@ -100,11 +103,34 @@ src/
   render/     Three.js scene, procedural pixel art
   ui/hud.js   HTML overlay (HP, wind, power, menus)
   audio/sfx.js  WebAudio bleeps
+  net/online.js  online room client
   main.js     turn flow + input
+server/       Cloudflare Worker + Room Durable Object (online play)
 ```
 
-## Online plan
+## Online (Cloudflare)
 
-The simulation is deterministic: a turn is just `{ angle, power }`, and wind comes from a seeded RNG.
-For online play, a small WebSocket relay server only has to pair two players in a room,
-share the seed, and forward each turn's `{ angle, power }`. Both browsers then replay the same throw.
+One Cloudflare Worker serves both the game (static files from `dist/`) and the rooms:
+
+```
+server/index.js   Worker: /api/new (create room), /api/room/:code (WebSocket), everything else = game files
+                  Room Durable Object: one per room, holds both players' connections
+server/match.js   runs the real rules from src/core and validates every move (turn order, items, angle/power)
+src/net/online.js browser WebSocket client
+```
+
+- The server is authoritative: it simulates every throw itself and sends the resulting state each turn,
+  so both screens always agree and moves can't be faked.
+- Rooms use WebSocket hibernation (free plan friendly). A match is stored as seed + move log and
+  replayed when a room wakes up.
+- Live aiming is relayed (throttled) but not stored.
+
+### Deploy
+
+```bash
+npx wrangler login   # once, opens the browser
+npm run deploy       # -> https://fence-feud.<your-subdomain>.workers.dev
+```
+
+Everything fits in Cloudflare's free Workers plan (SQLite-backed Durable Objects).
+Wrangler 3 is used because it runs on Node 20 (Wrangler 4 needs Node 22+).

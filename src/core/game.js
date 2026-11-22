@@ -43,6 +43,33 @@ export class Game {
     this.wind = Math.round(this.rng() * MAX_WIND * 2 - MAX_WIND);
   }
 
+  // ---------- online sync ----------
+  /** Plain-data copy of everything that matters between turns (sent by the server). */
+  snapshot() {
+    return {
+      turn: this.turn,
+      wind: this.wind,
+      winner: this.winner,
+      draft: this.draft ? [...this.draft] : null,
+      players: this.players.map((p) => ({ hp: p.hp, angle: p.angle, items: [...p.items], status: { ...p.status } })),
+    };
+  }
+
+  /** Overwrite local state with the server's (keeps both screens identical). */
+  applySnapshot(s) {
+    this.turn = s.turn;
+    this.wind = s.wind;
+    this.winner = s.winner;
+    this.draft = s.draft ? [...s.draft] : null;
+    s.players.forEach((sp, i) => {
+      const p = this.players[i];
+      p.hp = sp.hp;
+      p.angle = sp.angle;
+      p.items = [...sp.items];
+      p.status = { ...sp.status };
+    });
+  }
+
   // ---------- statuses ----------
   addStatus(p, id, value) { p.status[id] = value; }
   removeStatus(p, id) { delete p.status[id]; }

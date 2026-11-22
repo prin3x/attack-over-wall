@@ -50,7 +50,7 @@
           <p class="sub">DOG vs CAT</p>
           <button data-mode="cpu">1P VS CPU</button>
           <button data-mode="local">2P SAME PC</button>
-          <button data-mode="online" disabled>ONLINE (SOON)</button>
+          <button data-mode="online">2P ONLINE</button>
           <p class="hint">MOUSE OR UP/DOWN TO AIM<br />HOLD CLICK OR SPACE TO THROW<br />PICK ITEMS - USE WITH 1-4</p>
         </div>
 
@@ -58,6 +58,25 @@
           <h3 id="draftTitle">PICK AN ITEM</h3>
           <div id="cards"></div>
           <p class="hint">CLICK A CARD OR PRESS 1-3</p>
+        </div>
+
+        <div id="online" class="screen hidden">
+          <h2>ONLINE</h2>
+          <div id="lobbyHome" class="lobby">
+            <button id="createRoom">CREATE ROOM</button>
+            <div class="join-row">
+              <input id="joinCode" maxlength="5" placeholder="CODE" autocomplete="off" spellcheck="false" />
+              <button id="joinRoom">JOIN</button>
+            </div>
+            <button id="lobbyBack">BACK</button>
+          </div>
+          <div id="lobbyRoom" class="lobby hidden">
+            <p class="sub">ROOM CODE</p>
+            <p id="roomCode" class="code">-----</p>
+            <button id="copyLink">COPY LINK</button>
+            <button id="lobbyCancel">CANCEL</button>
+          </div>
+          <p id="lobbyMsg" class="hint"></p>
         </div>
 
         <div id="over" class="screen hidden">

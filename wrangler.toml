@@ -1,0 +1,17 @@
+name = "fence-feud"
+main = "server/index.js"
+compatibility_date = "2025-01-01"
+
+# The built game (npm run build) is served as static files.
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+
+# One Durable Object per online room. SQLite-backed = available on the free plan.
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "Room"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Room"]

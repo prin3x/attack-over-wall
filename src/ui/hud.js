@@ -8,7 +8,7 @@ export class Hud {
     this.hud = $('hud');
     this.banner = $('banner');
     this.popups = $('popups');
-    this.screens = { menu: $('menu'), over: $('over'), draft: $('draft') };
+    this.screens = { menu: $('menu'), over: $('over'), draft: $('draft'), online: $('online') };
     this.iconUrls = {};
     this.activeText = '';
     this.onSlot = () => {};
@@ -210,6 +210,18 @@ export class Hud {
     el.style.left = `${Math.max(half, Math.min(W - half, x))}px`;
     setTimeout(() => el.remove(), 1200);
   }
+
+  /** Lobby: 'home' (create/join) or 'room' (show code, waiting). */
+  showLobby(view, code = '') {
+    $('lobbyHome').classList.toggle('hidden', view !== 'home');
+    $('lobbyRoom').classList.toggle('hidden', view !== 'room');
+    $('roomCode').textContent = code;
+    this.show('online');
+  }
+
+  setLobbyMsg(text) { $('lobbyMsg').textContent = text; }
+
+  setRematchVisible(v) { $('rematch').classList.toggle('hidden', !v); this.sel = 0; this.highlight(); }
 
   setOverText(title, sub) {
     $('overTitle').textContent = title;

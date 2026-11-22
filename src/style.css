@@ -47,7 +47,8 @@ html, body {
 .hidden { display: none !important; }
 
 /* ---- HP ---- */
-.hp { position: absolute; top: 5px; width: 96px; }
+.hp { position: absolute; top: 5px; width: 110px; }
+.hp .label { white-space: nowrap; }
 .hp.left { left: 5px; }
 .hp.right { right: 5px; text-align: right; }
 .hp .label { margin-bottom: 2px; font-size: 6px; }
@@ -261,3 +262,23 @@ img { image-rendering: pixelated; }
 
 .popup.stink { color: #a6e07a; }
 .popup.item { color: #8fd8ff; font-size: 6px; }
+
+/* ---- Online lobby ---- */
+.lobby { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.join-row { display: flex; gap: 3px; }
+.join-row button { width: auto !important; }
+#joinCode {
+  width: 88px;
+  font: inherit;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  color: var(--ink);
+  background: #f2ead8;
+  border: 1px solid var(--white);
+  padding: 3px 4px;
+  outline: none;
+}
+#joinCode:focus { background: var(--white); box-shadow: 0 0 0 1px var(--gold); }
+.code { margin: 0 0 4px; font-size: 16px; letter-spacing: 3px; color: var(--gold); text-shadow: 2px 2px 0 var(--ink); }
+#lobbyMsg { min-height: 6px; }
