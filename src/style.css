@@ -257,8 +257,10 @@ img { image-rendering: pixelated; }
 
 #flash { position: absolute; inset: 0; background: #fff8e0; opacity: 0; pointer-events: none; }
 #flash.on { animation: flash 0.35s steps(4) forwards; }
+#flash.long { animation: flash 1.6s steps(10) forwards; }
 @keyframes flash { 0% { opacity: 0.95; } 100% { opacity: 0; } }
 .popup.boom { color: #ff9a2a; font-size: 12px; }
+.popup.combo { color: #ffd84a; font-size: 16px; text-shadow: 2px 2px 0 #e04848, 3px 3px 0 var(--ink); animation-duration: 1.8s; }
 
 .popup.stink { color: #a6e07a; }
 .popup.item { color: #8fd8ff; font-size: 6px; }
@@ -282,3 +284,59 @@ img { image-rendering: pixelated; }
 #joinCode:focus { background: var(--white); box-shadow: 0 0 0 1px var(--gold); }
 .code { margin: 0 0 4px; font-size: 16px; letter-spacing: 3px; color: var(--gold); text-shadow: 2px 2px 0 var(--ink); }
 #lobbyMsg { min-height: 6px; }
+
+/* ---- Combos: draft hints + combo book ---- */
+#cards .card.has-combo { border-color: var(--gold); box-shadow: 0 0 0 1px #e04848, 1px 1px 0 var(--ink); }
+.combo-hint {
+  margin-top: auto;
+  font-size: 5px;
+  color: var(--gold);
+  text-shadow: 1px 1px 0 #e04848;
+  animation: blink 0.6s steps(2) infinite;
+}
+.card.sel .combo-hint, .card:hover .combo-hint { color: #e04848; text-shadow: none; }
+
+#book { background: rgba(18, 12, 28, 0.85); gap: 3px; }
+.book-title { margin: 0 0 2px; font-size: 8px; color: var(--gold); }
+#bookList { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px; width: 304px; }
+.book-row { display: flex; align-items: center; gap: 3px; height: 22px; }
+.recipe { display: flex; align-items: center; gap: 1px; font-size: 5px; color: var(--gold); flex: none; }
+.recipe img { width: 12px; height: 12px; }
+.book-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.book-text b { font-size: 5px; color: var(--gold); font-weight: normal; }
+.book-text small { font-size: 4px; color: #e6d2a8; line-height: 1.3; }
+#book button { width: 80px; }
+
+/* ---- Character select ---- */
+#select { background: rgba(18, 12, 28, 0.8); gap: 4px; }
+#select h3 { margin: 0; font-size: 8px; color: var(--gold); }
+#charCards { display: flex; gap: 4px; }
+#charCards .char-card {
+  width: 74px;
+  padding: 3px 3px 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  border-color: var(--accent);
+  animation: pop 0.25s steps(4) both;
+}
+#charCards .char-card img { width: 56px; height: 48px; }
+.char-card .name { font-size: 6px; }
+.char-card .animal { font-size: 4px; color: #e6d2a8; }
+.char-card .stats { display: flex; flex-direction: column; gap: 2px; margin: 2px 0; width: 100%; }
+.char-card .stat { display: flex; align-items: center; justify-content: space-between; }
+.char-card .stat i { font-style: normal; font-size: 4px; }
+.char-card .pips { display: flex; gap: 1px; }
+.char-card .pips b { width: 5px; height: 3px; background: #3a2a3a; }
+.char-card .pips b.on { background: var(--accent); box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.35); }
+.char-card .passive { display: flex; flex-direction: column; align-items: center; gap: 1px; min-height: 16px; }
+.char-card .passive b { font-size: 4px; color: var(--gold); font-weight: normal; }
+.char-card .passive small { font-size: 4px; line-height: 1.3; color: #e6d2a8; text-align: center; }
+.char-card.sel .passive b, .char-card:hover .passive b,
+.char-card.sel .passive small, .char-card:hover .passive small,
+.char-card.sel .animal, .char-card:hover .animal { color: var(--ink); }
+.char-card:disabled { opacity: 0.5; }
+
+/* 4-card draft (GOOD BOY) */
+#cards.four .card { width: 70px; }

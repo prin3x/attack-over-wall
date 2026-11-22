@@ -25,7 +25,49 @@ npm run deploy       # build + deploy game and online server to Cloudflare
 - The power bar bounces 0 → 100 → 0, so release at the right moment.
 - The white tick on the power bar marks your previous throw.
 - **Wind** changes every turn (see the meter and the flag on the fence).
-- Damage: head hit 30 (CRITICAL), body hit 20, near miss up to 12 (splash).
+- Damage: head hit 30 (CRITICAL), body hit 20, near miss up to 14 (splash).
+- An arrow on the ground marks where your last throw landed, so you can adjust.
+
+## Characters
+
+Pick your animal before every match (1P: you pick, the CPU picks at random; 2P: each player picks;
+online: both pick secretly and are revealed when the match starts). Mirror matches are allowed.
+
+| Animal | HP | POW | SIZE | CTRL | Passive |
+| --- | --- | --- | --- | --- | --- |
+| BISCUIT (dog) | 3 | 4 | 3 | 3 | GOOD BOY: drafts show 4 cards |
+| MISO (cat) | 1 | 3 | 1 | 4 | NINE LIVES: survives one knockout with 1 HP |
+| SHELLY (turtle) | 5 | 2 | 4 | 2 | SHELL: half damage from splash and blasts |
+| BANDIT (raccoon) | 2 | 3 | 2 | 3 | STICKY PAWS: each hit steals a random item from the foe |
+
+Stats are 1-5: **HP** 70-130, **POW** x0.8-x1.2 damage, **SIZE** hitbox x0.8-x1.3 (big = tanky but easy to hit),
+**CTRL** power-bar speed (high = slower bar, easier timing; the CPU's aim follows it too).
+
+Balance is checked with a headless simulator: hundreds of CPU vs CPU matches per pairing
+(items and combos included). Current overall win rates are 47-54% for every animal.
+
+### Adding a character
+
+Characters are classes in `src/core/characters/roster.js`: stats, a passive hook and pixel art.
+
+```js
+class Hoot extends Character {
+  constructor() {
+    super({
+      id: 'hoot', name: 'HOOT', animal: 'OWL',
+      stats: { hp: 2, power: 4, size: 2, control: 3 },
+      passive: { name: 'NIGHT VISION', desc: 'WIND HAS NO EFFECT' },
+      projectile: { rows: ['.f.', 'fff', '.f.'], palette: { f: '#c8a060' } },
+      colors: { main: '#8a6a4a' },
+    });
+  }
+  drawFrame(p, frame) { /* 24x24 pixel art, facing right */ }
+}
+registerCharacter(new Hoot());
+```
+
+Passive hooks: `draftSize`, `modifyIncoming(game, me, d)`, `onLethal(game, me)`, `onVolleyHit(game, me, foe)`.
+The select screen, HUD, sprites, game rules, CPU and online server pick it up automatically.
 
 ## Items
 
@@ -33,8 +75,24 @@ At the start of every turn you **draft 1 of 3 random item cards** (skipped if yo
 Your bag holds 4 items. While aiming, click a slot or press `1`-`4`.
 
 **Combos:** use as many items as you like in one turn (each item type once per turn).
-Throw items stack, e.g. BOMB + DOUBLE = two bombs, BOMB + RUBBER DUCK = a bouncing bomb,
-BOMB + STINKY SOCK + GIANT = a huge stinky blast.
+Throw items stack, and certain pairs turn into a **combo**. Draft cards that would complete a combo
+with your bag say `MAKES ...!`, and the main menu has a **COMBO BOOK** listing every recipe.
+
+| Recipe | Combo | What happens |
+| --- | --- | --- |
+| BOMB + GIANT | NUKE | Huge blast (up to 45) + mushroom cloud. Hurts you too if it lands close |
+| BOMB + RUBBER DUCK | QUACK BOMB | Explodes on every bounce |
+| RUBBER DUCK + DOUBLE | DUCK STORM | 5 ducks at once |
+| STINKY SOCK + PEPPER | SPICY STINK | Stink for 5 turns + sneeze |
+| GIANT + RUBBER DUCK | DUCKZILLA | 3x duck, 4 bounces, 30 damage |
+| BIG FAN + BOMB | HOMING MISSILE | Ignores wind; if it gets within radar range of the foe it locks on and always hits |
+| UMBRELLA + BOMB | PARACHUTE BOMB | Floats down slowly, wind x3 (uses up your umbrella) |
+| CALM + BIG FAN | TORNADO | Wind swings back and forth mid-flight |
+| BOMB + PEPPER | FIRE BOMB | Blast + burn 7 damage for 2 turns |
+| BIG FAN + RUBBER DUCK | FLAPPY DUCK | The duck flaps up and down |
+
+Combos stack with each other too: BOMB + GIANT + DOUBLE = two nukes, BOMB + DUCK + DOUBLE = five exploding ducks.
+If a NUKE knocks out both players, the thrower loses.
 
 | Item | Effect |
 | --- | --- |
@@ -78,6 +136,25 @@ Hooks on `Item` (all optional):
 | `cpuDraftScore(game, me)` / `cpuWants(game, me)` | CPU behaviour (attack items are combo'd automatically by `cpuPriority`) |
 | `drawIcon(p)` / `drawIconOverlay(p)` | Pixel icon (also used as the projectile sprite) |
 
+### Adding a combo
+
+Combos are classes too (`src/core/items/Combo.js`). Declare a recipe and change the shot:
+
+```js
+class BananaSplitCombo extends Combo {
+  constructor() {
+    super({ id: 'bananasplit', name: 'BANANA SPLIT!', desc: 'SPLITS INTO 3', recipe: ['banana', 'double'], cpuPriority: 6 });
+  }
+  modifyShot(shot) { shot.spread = [-6, 0, 6]; shot.shots = 1; }
+}
+registerCombo(new BananaSplitCombo());
+```
+
+It shows up in the COMBO BOOK, draft hints, in-game `TRY +...` hints and the CPU's plans automatically.
+Useful `Shot` knobs for combos: `explosion` (`self`, `style: 'nuke'`, `fixed`), `bounceBlast`, `spread`,
+`gravityScale`, `windScale`, `speedScale`, `windWave`, `flutter`, `size`. Combos can also draw an icon
+(`drawIcon`) and fly it with `shot.setLook(id, rank)`, and react with `onTrigger(game, user, foe)`.
+
 Lasting effects are `Status` classes (`src/core/items/Status.js`) with `onTurnStart`, `onTurnEnd`,
 `blocksHit` and `powerRate` hooks. Register them with `registerStatus()`, and have an item apply one with
 `shot.inflicts.push({ status, value })` (on hit) or `game.addStatus(player, id, value)` (on use).
@@ -97,7 +174,8 @@ src/
     constants.js  tuning: gravity, wind, damage, hitboxes
     game.js       Game state + deterministic simulate(angle, power)
     shot.js       Shot: this turn's throw, modified by items (stacks for combos)
-    items/        Item + Status base classes, registry, catalog of all items
+    items/        Item + Status + Combo base classes, registry, catalog
+    characters/   Character base class, registry, roster (stats, passives, pixel art)
     ai.js         CPU shot search + draft/item choices
     rng.js        seeded PRNG
   render/     Three.js scene, procedural pixel art

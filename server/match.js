@@ -6,17 +6,18 @@ import { ANGLE_MIN, ANGLE_MAX } from '../src/core/constants.js';
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 export class Match {
-  constructor(seed) {
+  constructor(seed, chars) {
     this.seed = seed >>> 0;
-    this.game = new Game(this.seed);
+    this.chars = chars;
+    this.game = new Game(this.seed, chars);
     this.n = 0;          // turn number (matches the client's counter)
     this.log = [];       // accepted moves: [seat, msg], used to rebuild after hibernation
     this.nextTurn();
   }
 
   /** Rebuild a match by replaying its move log (deterministic). */
-  static replay(seed, log) {
-    const m = new Match(seed);
+  static replay(seed, log, chars) {
+    const m = new Match(seed, chars);
     for (const [seat, msg] of log) m.apply(seat, msg);
     return m;
   }
@@ -63,8 +64,7 @@ export class Match {
         g.players[seat].angle = a;
         // DOUBLE etc: keep throwing with the same angle/power while shots remain.
         do {
-          const { result } = g.simulate(seat, a, pw);
-          g.applyResult(result);
+          g.applyVolley(g.volley(seat, a, pw));
         } while (g.shotsLeft > 0 && g.winner === null);
         if (g.winner === null) {
           g.endTurn();

@@ -3,6 +3,7 @@
 //   GET /api/room/:code   -> WebSocket into that room (Durable Object)
 import { DurableObject } from 'cloudflare:workers';
 import { Match } from './match.js';
+import { CHARACTERS } from '../src/core/characters/index.js';
 
 const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // no I/L/O/0/1 to avoid typos
 const CODE_LEN = 5;
@@ -44,13 +45,13 @@ export class Room extends DurableObject {
   async loadMatch() {
     if (!this.match) {
       const saved = await this.ctx.storage.get('match');
-      if (saved) this.match = Match.replay(saved.seed, saved.log);
+      if (saved) this.match = Match.replay(saved.seed, saved.log, saved.chars);
     }
     return this.match;
   }
 
   async saveMatch() {
-    await this.ctx.storage.put('match', { seed: this.match.seed, log: this.match.log });
+    await this.ctx.storage.put('match', { seed: this.match.seed, log: this.match.log, chars: this.match.chars });
   }
 
   sockets(except) {
@@ -65,12 +66,21 @@ export class Room extends DurableObject {
     for (const ws of this.sockets()) if (ws.deserializeAttachment()?.seat !== seat) this.send(ws, msg);
   }
 
-  async startNewMatch() {
-    this.match = new Match(crypto.getRandomValues(new Uint32Array(1))[0]);
+  async startNewMatch(chars) {
+    this.match = new Match(crypto.getRandomValues(new Uint32Array(1))[0], chars);
     await this.saveMatch();
     await this.ctx.storage.delete('rematch');
     for (const ws of this.sockets()) {
-      this.send(ws, { t: 'start', seed: this.match.seed, you: ws.deserializeAttachment().seat, ...this.match.state });
+      this.send(ws, { t: 'start', seed: this.match.seed, chars, you: ws.deserializeAttachment().seat, ...this.match.state });
+    }
+  }
+
+  /** Both players connected: each picks a character (kept secret until both are in). */
+  async beginSelect() {
+    const picks = (await this.ctx.storage.get('picks')) || {};
+    for (const ws of this.sockets()) {
+      const seat = ws.deserializeAttachment().seat;
+      this.send(ws, { t: 'select', you: seat, picked: picks[seat] || null });
     }
   }
 
@@ -93,10 +103,10 @@ export class Room extends DurableObject {
     const match = await this.loadMatch();
     if (match) {
       // Re-joining a match in progress (e.g. page refresh).
-      this.send(server, { t: 'start', seed: match.seed, you: seat, resume: true, ...match.state });
+      this.send(server, { t: 'start', seed: match.seed, chars: match.chars, you: seat, resume: true, ...match.state });
       this.sendOther(seat, { t: 'back' });
     } else if (taken.size === 1) {
-      await this.startNewMatch();
+      await this.beginSelect();
     } else {
       this.send(server, { t: 'waiting' });
     }
@@ -109,10 +119,20 @@ export class Room extends DurableObject {
     const { seat } = ws.deserializeAttachment();
     const match = await this.loadMatch();
 
+    if (msg.t === 'char') {
+      if (match || !CHARACTERS[msg.id]) return;
+      const picks = (await this.ctx.storage.get('picks')) || {};
+      picks[seat] = msg.id;
+      await this.ctx.storage.put('picks', picks);
+      if (picks[0] && picks[1]) await this.startNewMatch([picks[0], picks[1]]);
+      else this.sendOther(seat, { t: 'picked' });
+      return;
+    }
+
     if (msg.t === 'rematch') {
       const votes = new Set((await this.ctx.storage.get('rematch')) || []);
       votes.add(seat);
-      if (votes.size >= 2) await this.startNewMatch();
+      if (votes.size >= 2) await this.startNewMatch(match.chars);
       else {
         await this.ctx.storage.put('rematch', [...votes]);
         this.sendOther(seat, { t: 'rematch' });

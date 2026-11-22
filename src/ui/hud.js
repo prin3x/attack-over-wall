@@ -1,5 +1,6 @@
-import { W, H, MAX_HP, MAX_WIND } from '../core/constants.js';
-import { ITEMS, STATUSES, BAG_SIZE } from '../core/items/index.js';
+import { W, H, MAX_WIND } from '../core/constants.js';
+import { ITEMS, STATUSES, COMBOS, BAG_SIZE } from '../core/items/index.js';
+import { CHARACTERS } from '../core/characters/index.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -8,7 +9,8 @@ export class Hud {
     this.hud = $('hud');
     this.banner = $('banner');
     this.popups = $('popups');
-    this.screens = { menu: $('menu'), over: $('over'), draft: $('draft'), online: $('online') };
+    this.screens = { menu: $('menu'), over: $('over'), draft: $('draft'), online: $('online'), book: $('book'), select: $('select') };
+    this.onSelect = () => {};
     this.iconUrls = {};
     this.activeText = '';
     this.onSlot = () => {};
@@ -40,20 +42,22 @@ export class Hud {
     this.buttons().forEach((b, i) => b.classList.toggle('sel', i === this.sel));
   }
 
-  showHud(names) {
+  showHud(names, maxHps) {
     this.hud.classList.remove('hidden');
+    this.maxHp = maxHps;
     $('name0').textContent = names[0];
     $('name1').textContent = names[1];
-    this.setHp(0, MAX_HP);
-    this.setHp(1, MAX_HP);
+    this.setHp(0, maxHps[0]);
+    this.setHp(1, maxHps[1]);
   }
 
   hideHud() { this.hud.classList.add('hidden'); }
 
   setHp(i, hp) {
     const fill = $(`hp${i}`);
-    fill.style.width = `${(hp / MAX_HP) * 100}%`;
-    fill.className = `fill ${hp > 50 ? 'ok' : hp > 25 ? 'mid' : 'low'}`;
+    const pct = (hp / (this.maxHp?.[i] || 100)) * 100;
+    fill.style.width = `${pct}%`;
+    fill.className = `fill ${pct > 50 ? 'ok' : pct > 25 ? 'mid' : 'low'}`;
     $(`hpv${i}`).textContent = hp;
   }
 
@@ -99,10 +103,11 @@ export class Hud {
   }
 
   /** Draft overlay: 3 cards like a level-up screen. */
-  showDraft(offers, title) {
+  showDraft(offers, title, hints = []) {
     $('draftTitle').textContent = title;
     const cards = $('cards');
     cards.innerHTML = '';
+    cards.classList.toggle('four', offers.length > 3);
     offers.forEach((id, i) => {
       const it = ITEMS[id];
       const b = document.createElement('button');
@@ -118,6 +123,13 @@ export class Hud {
       desc.className = 'desc';
       desc.textContent = it.desc;
       b.append(key, this.iconImg(id), name, desc);
+      if (hints[i]) {
+        const h = document.createElement('span');
+        h.className = 'combo-hint';
+        h.textContent = hints[i];
+        b.classList.add('has-combo');
+        b.append(h);
+      }
       b.addEventListener('click', () => this.onDraft(i));
       b.addEventListener('mouseenter', () => { this.sel = i; this.highlight(); });
       cards.appendChild(b);
@@ -183,11 +195,11 @@ export class Hud {
   }
 
   /** Full-screen white flash (bomb). */
-  flash() {
+  flash(long = false) {
     const el = $('flash');
-    el.classList.remove('on');
+    el.classList.remove('on', 'long');
     void el.offsetWidth;
-    el.classList.add('on');
+    el.classList.add(long ? 'long' : 'on');
   }
 
   setControlsVisible(v) { $('controls').classList.toggle('hidden', !v); }
@@ -209,6 +221,84 @@ export class Hud {
     const half = el.offsetWidth / 2 + 2;
     el.style.left = `${Math.max(half, Math.min(W - half, x))}px`;
     setTimeout(() => el.remove(), 1200);
+  }
+
+  /** Character select: one card per animal with sprite, 4 stat bars and the passive. */
+  showSelect(title, art, { locked = false, msg = 'CLICK OR ARROWS + ENTER' } = {}) {
+    $('selectTitle').textContent = title;
+    $('selectMsg').textContent = msg;
+    const wrap = $('charCards');
+    wrap.innerHTML = '';
+    for (const c of Object.values(CHARACTERS)) {
+      const b = document.createElement('button');
+      b.className = 'char-card';
+      b.disabled = locked;
+      b.style.setProperty('--accent', c.colors.main);
+      const img = document.createElement('img');
+      img.src = art[c.id].frames.idle0.toDataURL();
+      img.alt = c.name;
+      const name = document.createElement('span');
+      name.className = 'name';
+      name.textContent = c.name;
+      const animal = document.createElement('span');
+      animal.className = 'animal';
+      animal.textContent = c.animal;
+      const stats = document.createElement('span');
+      stats.className = 'stats';
+      for (const [label, key] of [['HP', 'hp'], ['POW', 'power'], ['SIZE', 'size'], ['CTRL', 'control']]) {
+        const row = document.createElement('span');
+        row.className = 'stat';
+        const l = document.createElement('i');
+        l.textContent = label;
+        const pips = document.createElement('span');
+        pips.className = 'pips';
+        for (let k = 1; k <= 5; k++) {
+          const pip = document.createElement('b');
+          if (k <= c.stats[key]) pip.className = 'on';
+          pips.append(pip);
+        }
+        row.append(l, pips);
+        stats.append(row);
+      }
+      const pas = document.createElement('span');
+      pas.className = 'passive';
+      const pn = document.createElement('b');
+      pn.textContent = c.passive.name;
+      const pd = document.createElement('small');
+      pd.textContent = c.passive.desc;
+      pas.append(pn, pd);
+      b.append(img, name, animal, stats, pas);
+      b.addEventListener('click', () => this.onSelect(c.id));
+      b.addEventListener('mouseenter', () => { this.sel = [...wrap.children].indexOf(b); this.highlight(); });
+      wrap.append(b);
+    }
+    this.show('select');
+  }
+
+  /** COMBO BOOK: every recipe -> result. */
+  showBook() {
+    const list = $('bookList');
+    list.innerHTML = '';
+    for (const c of Object.values(COMBOS)) {
+      const row = document.createElement('div');
+      row.className = 'book-row';
+      const recipe = document.createElement('span');
+      recipe.className = 'recipe';
+      c.recipe.forEach((id, k) => {
+        if (k) recipe.append('+');
+        recipe.append(this.iconImg(id));
+      });
+      const text = document.createElement('span');
+      text.className = 'book-text';
+      const name = document.createElement('b');
+      name.textContent = c.name;
+      const desc = document.createElement('small');
+      desc.textContent = c.desc;
+      text.append(name, desc);
+      row.append(recipe, text);
+      list.append(row);
+    }
+    this.show('book');
   }
 
   /** Lobby: 'home' (create/join) or 'room' (show code, waiting). */

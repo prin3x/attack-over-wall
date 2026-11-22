@@ -67,5 +67,14 @@ Object.assign(sfx, {
     tone({ f: 120, f2: 30, d: 0.7, type: 'sawtooth', v: 0.25 });
     tone({ f: 60, f2: 25, d: 0.9, type: 'sine', v: 0.4 });
   },
+  nuke() {
+    noise({ d: 2.2, v: 0.8, cutoff: 500 });
+    noise({ d: 0.5, v: 0.5, cutoff: 4000 });
+    tone({ f: 90, f2: 20, d: 2.0, type: 'sawtooth', v: 0.3 });
+    tone({ f: 45, f2: 18, d: 2.4, type: 'sine', v: 0.5 });
+  },
+  combo() { [523, 784, 1047, 1568].forEach((f, i) => tone({ f, d: 0.1, v: 0.09, delay: i * 0.05 })); },
+  quack() { tone({ f: 700, f2: 400, d: 0.12, type: 'sawtooth', v: 0.08 }); tone({ f: 650, f2: 380, d: 0.1, type: 'sawtooth', v: 0.06, delay: 0.1 }); },
+  lock() { [0, 0.09, 0.18].forEach((d) => tone({ f: 1760, d: 0.06, type: 'square', v: 0.07, delay: d })); },
   deny() { tone({ f: 150, d: 0.08, v: 0.08 }); },
 });

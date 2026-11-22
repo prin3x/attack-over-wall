@@ -10,7 +10,8 @@ export class Shot {
   constructor() {
     this.damage = { hit: DMG_HIT, crit: DMG_CRIT }; // direct-hit damage
     this.bounces = 0;          // ground bounces before stopping
-    this.explosion = null;     // { radius, max, min } -> explodes on contact
+    this.explosion = null;     // { radius, max, min, self?, style?, fixed? } -> explodes on contact
+                               //   self: also hurts the thrower; fixed: ignore GIANT scaling; style: visual
     this.size = 1;             // 2 = GIANT (bigger sprite, hitbox, splash, blast)
     this.shots = 1;            // throws this turn
     this.inflicts = [];        // statuses applied to whoever takes damage: [{ status, value }]
@@ -18,6 +19,17 @@ export class Shot {
     this.lookRank = 0;
     this.trails = [];          // particle trails while flying: 'fuse' | 'stink'
     this.spin = 'spin';        // in-flight motion: 'spin' | 'wobble'
+    this.spread = [0];         // projectiles per throw, as power offsets (e.g. [-10, -5, 0, 5, 10])
+    this.bounceBlast = false;  // explode on every bounce, not just at the end
+    this.combos = [];          // combo ids active this turn
+    // Flight physics knobs (all deterministic, so online stays in sync)
+    this.gravityScale = 1;     // 0.35 = floaty (parachute)
+    this.windScale = 1;        // 0 = ignores wind, 3 = blown around
+    this.speedScale = 1;       // launch speed multiplier
+    this.windWave = null;      // { amp, freq }: wind swings back and forth during flight
+    this.flutter = null;       // { amp, freq }: flaps up and down
+    this.homing = null;        // { range, turn, speed }: locks on when within `range` px of the foe,
+                               //   then steers (max `turn` radians/step) at `speed`, ignoring gravity & wind
   }
 
   /** Several items may want to change the sprite; the highest rank wins. */
@@ -38,8 +50,9 @@ export class Shot {
   get splashRadius() { return SPLASH_RADIUS * (1 + (this.size - 1) * 0.6); }
   get splashMax() { return SPLASH_MAX * (1 + (this.size - 1) * 0.4); }
   get blast() {
-    if (!this.explosion) return null;
-    const { radius, max, min } = this.explosion;
-    return { radius: radius * (1 + (this.size - 1) * 0.4), max: max + (this.size - 1) * 6, min };
+    const e = this.explosion;
+    if (!e) return null;
+    if (e.fixed) return { ...e };
+    return { ...e, radius: e.radius * (1 + (this.size - 1) * 0.4), max: e.max + (this.size - 1) * 6 };
   }
 }

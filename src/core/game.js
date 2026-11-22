@@ -1,31 +1,40 @@
 import {
-  W, GROUND_Y, DT, GRAVITY, MAX_SPEED, WIND_ACCEL, MAX_WIND, MAX_HP,
+  W, GROUND_Y, DT, GRAVITY, MAX_SPEED, WIND_ACCEL, MAX_WIND,
   WALL, PLAYER_X, LAUNCH, HEAD, BODY,
 } from './constants.js';
 import { mulberry32 } from './rng.js';
 import { Shot } from './shot.js';
-import { ITEMS, STATUSES, BAG_SIZE, rollDraft } from './items/index.js';
+import { ITEMS, STATUSES, COMBOS, BAG_SIZE, rollDraft } from './items/index.js';
+import { CHARACTERS, DEFAULT_CHARACTERS } from './characters/index.js';
 
 /**
- * Pure game state + rules. No rendering, no input, and no item-specific code:
- * items act through Item hooks (core/items) and the Shot they modify.
+ * Pure game state + rules. No rendering, no input, and no item- or
+ * character-specific code: items act through Item hooks (core/items) and the
+ * Shot they modify; animals act through Character stats + passive hooks.
  *
  * Everything random comes from the seeded RNG, and every player decision is a
  * small value (draft pick, item slot, angle, power), so online play can just
  * exchange those decisions and both sides stay in sync.
  */
 export class Game {
-  constructor(seed = (Math.random() * 2 ** 32) >>> 0) {
+  constructor(seed = (Math.random() * 2 ** 32) >>> 0, chars = DEFAULT_CHARACTERS) {
     this.seed = seed >>> 0;
     this.rng = mulberry32(this.seed);
-    this.players = [0, 1].map((i) => ({
-      x: PLAYER_X[i],
-      facing: i === 0 ? 1 : -1,
-      hp: MAX_HP,
-      angle: 45,
-      items: [],
-      status: {},   // status id -> value (turns left or true)
-    }));
+    this.players = [0, 1].map((i) => {
+      const c = CHARACTERS[chars[i]] || CHARACTERS[DEFAULT_CHARACTERS[i]];
+      return {
+        char: c.id,
+        x: PLAYER_X[i],
+        facing: i === 0 ? 1 : -1,
+        hp: c.maxHp,
+        maxHp: c.maxHp,
+        angle: 45,
+        items: [],
+        status: {},   // status id -> value (turns left or true)
+        flags: {},    // one-off passive state (e.g. nine lives used)
+      };
+    });
+    this.events = [];     // passive triggers for the UI (nine lives, steals...)
     this.turn = 0;
     this.winner = null;
     this.wind = 0;
@@ -37,6 +46,14 @@ export class Game {
   }
 
   get current() { return this.players[this.turn]; }
+  charOf(p) { return CHARACTERS[p.char]; }
+
+  /** UI events since the last call (passives that triggered). */
+  drainEvents() {
+    const e = this.events;
+    this.events = [];
+    return e;
+  }
   get opponent() { return this.players[1 - this.turn]; }
 
   rollWind() {
@@ -51,7 +68,7 @@ export class Game {
       wind: this.wind,
       winner: this.winner,
       draft: this.draft ? [...this.draft] : null,
-      players: this.players.map((p) => ({ hp: p.hp, angle: p.angle, items: [...p.items], status: { ...p.status } })),
+      players: this.players.map((p) => ({ hp: p.hp, angle: p.angle, items: [...p.items], status: { ...p.status }, flags: { ...p.flags } })),
     };
   }
 
@@ -67,6 +84,7 @@ export class Game {
       p.angle = sp.angle;
       p.items = [...sp.items];
       p.status = { ...sp.status };
+      p.flags = { ...(sp.flags || {}) };
     });
   }
 
@@ -74,16 +92,20 @@ export class Game {
   addStatus(p, id, value) { p.status[id] = value; }
   removeStatus(p, id) { delete p.status[id]; }
 
-  /** Power-bar speed multiplier from statuses (e.g. pepper). */
+  /** Power-bar speed multiplier: the character's CONTROL stat x statuses (e.g. pepper). */
   powerRate(p) {
-    return Object.keys(p.status).reduce((m, id) => m * STATUSES[id].powerRate(this, p), 1);
+    return Object.keys(p.status).reduce((m, id) => m * STATUSES[id].powerRate(this, p), this.charOf(p).controlRate);
   }
 
   damage(idx, amount) {
     const p = this.players[idx];
-    const dealt = Math.min(amount, p.hp);
+    let dealt = Math.min(amount, p.hp);
+    if (dealt > 0 && dealt === p.hp && this.charOf(p).onLethal(this, p)) {
+      dealt = p.hp - 1;   // survived with 1 HP (e.g. NINE LIVES)
+      this.events.push({ type: 'survive', idx, text: this.charOf(p).passive.name });
+    }
     p.hp -= dealt;
-    if (p.hp === 0) this.winner = 1 - idx;
+    if (p.hp === 0 && this.winner === null) this.winner = 1 - idx;
     return dealt;
   }
 
@@ -104,7 +126,7 @@ export class Game {
       if (fx.damage) fx.damage = this.damage(this.turn, fx.damage);
       effects.push(fx);
     }
-    this.draft = p.items.length < BAG_SIZE ? rollDraft(this.rng) : null;
+    this.draft = p.items.length < BAG_SIZE ? rollDraft(this.rng, this.charOf(p).draftSize) : null;
     return { effects, draft: this.draft };
   }
 
@@ -131,6 +153,18 @@ export class Game {
     this.used.push(id);
     item.onUse(this, this.current, this.opponent);
     item.modifyShot(this.shot);
+    // Combos: any recipe completed by this item kicks in now.
+    this.newCombos = [];
+    for (const combo of Object.values(COMBOS)) {
+      if (!this.shot.combos.includes(combo.id) && combo.matches(this.used)) {
+        combo.onTrigger(this, this.current, this.opponent);
+        combo.modifyShot(this.shot);
+        this.shot.combos.push(combo.id);
+        this.newCombos.push(combo.id);
+      }
+    }
+    // Re-apply combos already active so later items can't undo them (e.g. DOUBLE after DUCK STORM).
+    for (const id of this.shot.combos) if (!this.newCombos.includes(id)) COMBOS[id].modifyShot(this.shot);
     this.shotsLeft = this.shot.shots;
     return id;
   }
@@ -148,6 +182,25 @@ export class Game {
     return { x: p.x + LAUNCH.dx * p.facing, y: GROUND_Y + LAUNCH.dy };
   }
 
+  /** One throw = one projectile per `shot.spread` entry, all flying at once. */
+  volley(idx, angleDeg, power, shot = this.shot) {
+    return shot.spread.map((off) => this.simulate(idx, angleDeg, Math.max(1, Math.min(100, power + off)), shot));
+  }
+
+  /** Apply every projectile of a volley, then count it as one shot. */
+  applyVolley(flights) {
+    const me = this.current;
+    const foe = this.opponent;
+    const before = foe.hp;
+    for (const f of flights) this.applyResult(f.result);
+    // Passive: something that triggers when my volley actually hurt the foe (e.g. STICKY PAWS).
+    if (foe.hp < before) {
+      const ev = this.charOf(me).onVolleyHit(this, me, foe);
+      if (ev) this.events.push({ ...ev, idx: this.turn });
+    }
+    this.shotsLeft--;
+  }
+
   /** Runs the whole flight. Returns every frame's position and what it hit. */
   simulate(idx, angleDeg, power, shot = this.shot) {
     const p = this.players[idx];
@@ -157,29 +210,55 @@ export class Game {
     const rad = (angleDeg * Math.PI) / 180;
     const speed = (power / 100) * MAX_SPEED;
     let { x, y } = this.launchPoint(idx);
-    let vx = Math.cos(rad) * speed * p.facing;
-    let vy = Math.sin(rad) * speed;
-    const ax = this.wind * WIND_ACCEL;
+    let vx = Math.cos(rad) * speed * shot.speedScale * p.facing;
+    let vy = Math.sin(rad) * speed * shot.speedScale;
+    const ww = shot.windWave;
+    const fl = shot.flutter;
+    const hm = shot.homing;
+    const foe = this.players[1 - idx];
+    const foeX = foe.x + BODY.dx * foe.facing;
+    const foeY = GROUND_Y + BODY.dy;
+    const mult = this.charOf(p).damageMult;   // POWER stat
+    const dmg = (n) => Math.max(1, Math.round(n * mult));
+    let locked = false;
     const points = [{ x, y }];
+    const blasts = [];   // extra explosions along the way (QUACK BOMB bounces)
     const done = (kind, damages = []) => {
       points.push({ x, y });
       if (shot.explosion) {
         kind = 'boom';
-        damages = this.blast(idx, x, y, shot.blast);
+        damages = this.blast(idx, x, y, shot.blast, mult);
       }
-      return { points, result: { kind, x, y, damages, inflicts: shot.inflicts } };
+      for (const b of blasts) damages = damages.concat(b.damages);
+      return { points, result: { kind, x, y, damages, inflicts: shot.inflicts, style: shot.explosion?.style || 'bomb', blasts } };
     };
 
     for (let step = 0; step < 1200; step++) {
-      vx += ax * DT;
-      vy -= GRAVITY * DT;
+      if (hm && !locked && Math.hypot(x - foeX, y - foeY) < hm.range) {
+        locked = true;
+        points.push({ x, y, lock: true });
+      }
+      if (locked) {
+        // Steer toward the target: rotate velocity by at most `turn` per step, fixed speed.
+        const cur = Math.atan2(vy, vx);
+        let diff = Math.atan2(foeY - y, foeX - x) - cur;
+        diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+        const dir = cur + Math.max(-hm.turn, Math.min(hm.turn, diff));
+        vx = Math.cos(dir) * hm.speed;
+        vy = Math.sin(dir) * hm.speed;
+      } else {
+        const wind = this.wind + (ww ? ww.amp * Math.sin(step * ww.freq) : 0);
+        vx += wind * WIND_ACCEL * shot.windScale * DT;
+        vy -= GRAVITY * shot.gravityScale * DT;
+        if (fl) vy += fl.amp * Math.sin(step * fl.freq) * DT;
+      }
       x += vx * DT;
       y += vy * DT;
 
       for (let i = 0; i < 2; i++) {
         if (i === idx && step < 30) continue;
-        const kind = hitTest(this.players[i], x, y, grow);
-        if (kind) return done(kind, [{ idx: i, amount: shot.damage[kind] }]);
+        const kind = hitTest(this.players[i], this.charOf(this.players[i]).sizeScale, x, y, grow);
+        if (kind) return done(kind, [{ idx: i, amount: dmg(shot.damage[kind]), type: 'direct' }]);
       }
 
       if (x >= WALL.x0 - grow / 2 && x <= WALL.x1 + grow / 2 && y <= WALL.y1 + grow / 2) return done('wall');
@@ -190,31 +269,40 @@ export class Game {
           bouncesLeft--;
           vy = -vy * 0.6;
           vx *= 0.75;
-          points.push({ x, y, bounce: true });
+          const blast = shot.bounceBlast && shot.explosion;
+          if (blast) blasts.push({ x, y, damages: this.blast(idx, x, y, shot.blast, mult) });
+          points.push({ x, y, bounce: true, blast: !!blast });
           continue;
         }
         const damages = [];
         const t = this.players[1 - idx];
         const d = Math.abs(x - (t.x + BODY.dx * t.facing));
-        const r = shot.splashRadius;
-        if (d < r) damages.push({ idx: 1 - idx, amount: Math.max(1, Math.round(shot.splashMax * (1 - d / r))) });
+        const r = shot.splashRadius + BODY.r * (this.charOf(t).sizeScale - 1);   // bigger animals get splashed more
+        if (d < r) damages.push({ idx: 1 - idx, amount: dmg(shot.splashMax * (1 - d / r)), type: 'splash' });
         return done(damages.length ? 'splash' : 'ground', damages);
       }
 
-      if (x < -40 || x > W + 40) return done('out');
+      if (!locked && (x < -40 || x > W + 40)) return done('out');   // a locked missile turns back
       points.push({ x, y });
     }
     return done('out');
   }
 
-  /** Explosion: damage falls off with distance from the blast to the target's body. */
-  blast(idx, x, y, { radius, max, min }) {
-    const t = this.players[1 - idx];
-    const bx = t.x + BODY.dx * t.facing;
-    const by = GROUND_Y + BODY.dy;
-    const d = Math.max(0, Math.hypot(x - bx, y - by) - BODY.r);
-    if (d >= radius) return [];
-    return [{ idx: 1 - idx, amount: Math.round(min + (max - min) * (1 - d / radius)) }];
+  /**
+   * Explosion: damage falls off with distance from the blast to each body.
+   * Normally only the opponent is hurt; `self` blasts (NUKE) hurt the thrower too.
+   */
+  blast(idx, x, y, { radius, max, min, self = false }, mult = 1) {
+    const out = [];
+    for (let i = 0; i < 2; i++) {
+      if (i === idx && !self) continue;
+      const t = this.players[i];
+      const bx = t.x + BODY.dx * t.facing;
+      const by = GROUND_Y + BODY.dy;
+      const d = Math.max(0, Math.hypot(x - bx, y - by) - BODY.r * this.charOf(t).sizeScale);
+      if (d < radius) out.push({ idx: i, amount: Math.round((min + (max - min) * (1 - d / radius)) * mult), type: 'blast' });
+    }
+    return out;
   }
 
   /**
@@ -229,23 +317,27 @@ export class Game {
         d.blockedBy = blocker;
         continue;
       }
+      // Defender's passive may reduce it (e.g. SHELL halves splash/blasts).
+      d.amount = this.charOf(p).modifyIncoming(this, p, d);
       this.damage(d.idx, d.amount);
       d.inflicted = [];
+      if (d.idx === this.turn) continue;   // your own nuke doesn't stink you
       for (const { status, value } of result.inflicts) {
         this.addStatus(p, status, value);
         d.inflicted.push(status);
       }
     }
-    this.shotsLeft--;
+    // Double knockout (e.g. a NUKE that also catches the thrower): the thrower loses.
+    if (this.players.every((pl) => pl.hp === 0)) this.winner = 1 - this.turn;
   }
 }
 
-function hitTest(p, x, y, grow = 0) {
+function hitTest(p, scale, x, y, grow = 0) {
   const hx = p.x + HEAD.dx * p.facing;
   const hy = GROUND_Y + HEAD.dy;
-  if ((x - hx) ** 2 + (y - hy) ** 2 <= (HEAD.r + grow * 0.6) ** 2) return 'crit';
+  if ((x - hx) ** 2 + (y - hy) ** 2 <= (HEAD.r * scale + grow * 0.6) ** 2) return 'crit';
   const bx = p.x + BODY.dx * p.facing;
   const by = GROUND_Y + BODY.dy;
-  if ((x - bx) ** 2 + (y - by) ** 2 <= (BODY.r + grow) ** 2) return 'hit';
+  if ((x - bx) ** 2 + (y - by) ** 2 <= (BODY.r * scale + grow) ** 2) return 'hit';
   return null;
 }

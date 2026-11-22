@@ -51,13 +51,20 @@
           <button data-mode="cpu">1P VS CPU</button>
           <button data-mode="local">2P SAME PC</button>
           <button data-mode="online">2P ONLINE</button>
+          <button id="openBook">COMBO BOOK</button>
           <p class="hint">MOUSE OR UP/DOWN TO AIM<br />HOLD CLICK OR SPACE TO THROW<br />PICK ITEMS - USE WITH 1-4</p>
+        </div>
+
+        <div id="select" class="screen hidden">
+          <h3 id="selectTitle">CHOOSE YOUR ANIMAL</h3>
+          <div id="charCards"></div>
+          <p id="selectMsg" class="hint">CLICK OR ARROWS + ENTER</p>
         </div>
 
         <div id="draft" class="screen hidden">
           <h3 id="draftTitle">PICK AN ITEM</h3>
           <div id="cards"></div>
-          <p class="hint">CLICK A CARD OR PRESS 1-3</p>
+          <p class="hint">CLICK A CARD OR PRESS ITS NUMBER</p>
         </div>
 
         <div id="online" class="screen hidden">
@@ -77,6 +84,12 @@
             <button id="lobbyCancel">CANCEL</button>
           </div>
           <p id="lobbyMsg" class="hint"></p>
+        </div>
+
+        <div id="book" class="screen hidden">
+          <h3 class="book-title">COMBO BOOK</h3>
+          <div id="bookList"></div>
+          <button id="closeBook">BACK</button>
         </div>
 
         <div id="over" class="screen hidden">

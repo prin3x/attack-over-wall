@@ -1,138 +1,26 @@
 import { Pix } from './pixel.js';
 import { W, H, GROUND_Y, WALL } from '../core/constants.js';
-import { ITEMS } from '../core/items/index.js';
+import { ITEMS, COMBOS } from '../core/items/index.js';
+import { CHARACTERS } from '../core/characters/index.js';
 
 const OUTLINE = '#1c1220';
 const WHITE = '#ffffff';
 export const FRAMES = ['idle0', 'idle1', 'windup', 'throw', 'hurt', 'win'];
 
-// ---------- Biscuit the dog (drawn facing right) ----------
-function drawDog(f) {
-  const p = new Pix(28, 24, 2, 0);
-  const B = '#c07a3c', D = '#83502a', L = '#f2d3a0', N = OUTLINE, R = '#dc3c3c', T = '#ef6f8f';
-  const bob = f === 'idle1' ? 1 : 0;
-  const hy = 9 + bob;
-
-  // tail
-  if (f === 'idle1' || f === 'win') p.thick(4, 14 + bob, 1, 10 + bob, B);
-  else p.thick(4, 14 + bob, 1, 13 + bob, B);
-  // legs (far pair darker)
-  p.rect(6, 18, 2, 4, D); p.rect(13, 18, 2, 4, D);
-  p.rect(8, 18, 2, 4, B); p.rect(15, 18, 2, 4, B);
-  p.rect(8, 21, 2, 1, L); p.rect(15, 21, 2, 1, L);
-  // body
-  p.ellipse(11, 15.5 + bob, 7, 4.5, B);
-  p.ellipse(12, 17.5 + bob, 4, 1.8, L);
-  p.ellipse(7, 13.5 + bob, 2, 1.5, L);
-  // head
-  p.ellipse(16.5, hy, 5, 4.5, B);
-  p.ellipse(20.5, hy + 2, 2.5, 2, L);
-  p.set(21, hy + 1, N); p.set(22, hy + 1, N);
-  if (f === 'throw' || f === 'win') { p.set(20, hy + 4, T); p.set(21, hy + 4, T); }
-  // floppy ear
-  p.rect(12, hy - 5, 3, 2, D);
-  p.rect(11, hy - 3, 3, 5, D);
-  // eyes
-  if (f === 'hurt') {
-    p.set(17, hy - 2, N); p.set(19, hy - 2, N); p.set(18, hy - 1, N); p.set(17, hy, N); p.set(19, hy, N);
-  } else if (f === 'win') {
-    p.set(18, hy - 2, N); p.set(17, hy - 1, N); p.set(19, hy - 1, N);
-  } else {
-    p.set(18, hy - 1, N); p.set(18, hy, N);
-  }
-  // bandana
-  p.rect(13, hy + 4, 6, 2, R);
-  p.rect(12, hy + 5, 2, 2, R);
-  // arms
-  if (f === 'windup') {
-    p.thick(14, 13, 11, 8, D);
-    p.rect(10, 6, 2, 2, L);
-    p.rect(8, 5, 4, 1, WHITE); p.set(8, 4, WHITE); p.set(8, 6, WHITE); p.set(11, 4, WHITE); p.set(11, 6, WHITE);
-  } else if (f === 'throw') {
-    p.line(17, 13, 21, 11, D); p.line(17, 14, 21, 12, D);
-    p.rect(22, 11, 1, 2, L);
-  } else if (f === 'win') {
-    p.thick(13, 12, 12, 7, D); p.thick(18, 12, 19, 7, D);
-    p.rect(12, 6, 2, 1, L); p.rect(19, 6, 2, 1, L);
-  } else {
-    p.rect(16, 14 + bob, 2, 3, D);
-    p.rect(16, 17 + bob, 2, 1, L);
-  }
-  return p.outline(OUTLINE);
-}
-
-// ---------- Miso the cat (drawn facing right, flipped in-game) ----------
-function drawCat(f) {
-  const p = new Pix(28, 24, 2, 0);
-  const G = '#9aa0b4', S = '#5f6478', A = '#7a8096', L = '#e6e8ef', E = '#8be04e', N = OUTLINE, P = '#f08aa0', C = '#3a8be0';
-  const bob = f === 'idle1' ? 1 : 0;
-  const hy = 9 + bob;
-
-  // tail curling up
-  p.thick(4, 16 + bob, 2, 13 + bob, G);
-  p.thick(2, 13 + bob, 2, 8 + bob, G);
-  const tip = f === 'idle1' || f === 'win' ? -1 : 0;
-  p.rect(2 + tip, 6 + bob, 2, 2, S);
-  // legs
-  p.rect(7, 18, 2, 4, A); p.rect(14, 18, 2, 4, A);
-  p.rect(9, 18, 2, 4, G); p.rect(16, 18, 2, 4, G);
-  p.rect(9, 21, 2, 1, L); p.rect(16, 21, 2, 1, L);
-  // body + stripes
-  p.ellipse(11.5, 15.5 + bob, 6.5, 4, G);
-  p.ellipse(12, 17.5 + bob, 4, 1.6, L);
-  p.rect(8, 12 + bob, 1, 3, S); p.rect(11, 12 + bob, 1, 3, S);
-  // head
-  p.ellipse(16.5, hy + 0.5, 4.8, 4, G);
-  // ears
-  p.set(13, hy - 6, G); p.rect(13, hy - 5, 2, 1, G); p.rect(12, hy - 4, 4, 1, G);
-  p.set(19, hy - 6, G); p.rect(18, hy - 5, 2, 1, G); p.rect(17, hy - 4, 4, 1, G);
-  p.set(13, hy - 4, P); p.set(19, hy - 4, P);
-  p.set(16, hy - 3, S); p.set(16, hy - 2, S); p.set(15, hy - 3, S);
-  // muzzle + nose
-  p.ellipse(19.5, hy + 2, 2.2, 1.4, L);
-  p.set(21, hy + 1, P);
-  if (f === 'throw' || f === 'win') { p.set(20, hy + 3, P); }
-  // eyes
-  if (f === 'hurt') {
-    p.rect(15, hy, 2, 1, N); p.rect(18, hy, 2, 1, N);
-  } else if (f === 'win') {
-    p.set(16, hy - 1, N); p.set(15, hy, N); p.set(17, hy, N);
-    p.set(19, hy - 1, N); p.set(18, hy, N); p.set(20, hy, N);
-  } else {
-    p.set(16, hy - 1, E); p.set(16, hy, N);
-    p.set(19, hy - 1, E); p.set(19, hy, N);
-  }
-  // scarf
-  p.rect(13, hy + 4, 6, 2, C);
-  p.rect(12, hy + 6, 2, 2, C);
-  // arms
-  if (f === 'windup') {
-    p.thick(14, 13, 11, 8, A);
-    p.rect(10, 6, 2, 2, L);
-    p.rect(7, 5, 5, 1, WHITE); p.set(7, 4, WHITE); p.set(7, 6, WHITE); p.set(9, 4, WHITE); p.set(9, 6, WHITE);
-  } else if (f === 'throw') {
-    p.line(17, 13, 21, 11, A); p.line(17, 14, 21, 12, A);
-    p.rect(22, 11, 1, 2, L);
-  } else if (f === 'win') {
-    p.thick(13, 12, 12, 7, A); p.thick(18, 12, 19, 7, A);
-    p.rect(12, 6, 2, 1, L); p.rect(19, 6, 2, 1, L);
-  } else {
-    p.rect(16, 14 + bob, 2, 3, A);
-    p.rect(16, 17 + bob, 2, 1, L);
-  }
-  return p.outline(OUTLINE);
+// ---------- characters (pixel art lives in core/characters/roster.js) ----------
+function characterArt(c) {
+  const frames = Object.fromEntries(
+    FRAMES.map((f) => {
+      const p = new Pix(28, 24, 2, 0);
+      c.drawFrame(p, f);
+      return [f, p.outline(OUTLINE).toCanvas()];
+    }),
+  );
+  const projectile = Pix.fromStrings(c.projectile.rows, c.projectile.palette).outline(OUTLINE).toCanvas();
+  return { frames, projectile };
 }
 
 // ---------- small sprites ----------
-const bone = () =>
-  Pix.fromStrings(['w.....w', 'wwwwwww', 'w.....w'], { w: WHITE }).outline(OUTLINE);
-
-const fishbone = () =>
-  Pix.fromStrings(
-    ['w.w.w.w.ww.', '.wwwwwwwwkw', 'w.w.w.w.ww.'],
-    { w: WHITE, k: OUTLINE },
-  ).outline(OUTLINE);
-
 const marker = () =>
   Pix.fromStrings(['..y..', '.yyy.', 'yyyyy'], { y: '#ffd84a' }).outline(OUTLINE);
 
@@ -253,16 +141,19 @@ function drawBackground() {
 }
 
 export function buildArt() {
-  const frames = (fn) => Object.fromEntries(FRAMES.map((f) => [f, fn(f).toCanvas()]));
   return {
-    dog: frames(drawDog),
-    cat: frames(drawCat),
-    bone: bone().toCanvas(),
-    fishbone: fishbone().toCanvas(),
+    characters: Object.fromEntries(Object.values(CHARACTERS).map((c) => [c.id, characterArt(c)])),
     marker: marker().toCanvas(),
     flag: flag().toCanvas(),
     cloud: cloud().toCanvas(),
     background: drawBackground(),
     icons: Object.fromEntries(Object.values(ITEMS).map((item) => [item.id, itemIcon(item).toCanvas()])),
+    // Combos that draw something get a sprite too (e.g. the NUKE warhead).
+    comboIcons: Object.fromEntries(
+      Object.values(COMBOS)
+        .map((c) => [c.id, itemIcon(c)])
+        .filter(([, p]) => p.d.some(Boolean))
+        .map(([id, p]) => [id, p.toCanvas()]),
+    ),
   };
 }
