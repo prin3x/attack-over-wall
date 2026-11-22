@@ -21,6 +21,20 @@ class Biscuit extends Character {
     });
   }
   get draftSize() { return 4; }
+  get dancePalette() { return { body: '#c07a3c', belly: '#f2d3a0', limb: '#c07a3c', paw: '#f2d3a0' }; }
+  danceBack(p, k, dy) {
+    p.thick(8, 15 + dy, 4, k === 1 ? 13 + dy : 10 + dy, '#c07a3c');   // wagging tail
+  }
+  danceHead(p, k, dy, hy) {
+    const B = '#c07a3c', D = '#83502a', L = '#f2d3a0';
+    p.ellipse(13, hy, 4, 3.6, B);
+    p.ellipse(16.5, hy + 1.5, 2.2, 1.6, L);
+    p.set(18, hy + 1, N);
+    if (k === 1) p.rect(8, hy - 4, 2, 4, D); else p.rect(9, hy - 2, 2, 5, D);   // ear flaps
+    p.set(13, hy - 1, N); p.set(12, hy, N); p.set(14, hy, N);                     // happy eyes ^
+    p.rect(16, hy + 3, 2, 2, '#ef6f8f');                                          // tongue out
+    p.rect(10, hy + 4, 6, 1, '#dc3c3c');                                          // bandana
+  }
   drawFrame(p, f) {
     const B = '#c07a3c', D = '#83502a', L = '#f2d3a0', R = '#dc3c3c', T = '#ef6f8f';
     const bob = f === 'idle1' ? 1 : 0;
@@ -93,6 +107,26 @@ class Miso extends Character {
     if (me.flags.nineLives) return false;
     me.flags.nineLives = true;
     return true;
+  }
+  get dancePalette() { return { body: '#9aa0b4', belly: '#e6e8ef', limb: '#7a8096', paw: '#e6e8ef' }; }
+  danceBack(p, k, dy) {
+    const G = '#9aa0b4';
+    p.thick(8, 16 + dy, 4, 14 + dy, G);
+    p.thick(4, 14 + dy, k === 2 ? 2 : 4, 8 + dy, G);
+    p.rect(k === 2 ? 2 : 4, 7 + dy, 2, 2, '#5f6478');
+  }
+  danceBody(p, k, dy) { p.rect(9, 11 + dy, 1, 3, '#5f6478'); p.rect(14, 11 + dy, 1, 3, '#5f6478'); }
+  danceHead(p, k, dy, hy) {
+    const G = '#9aa0b4', S = '#5f6478', P = '#f08aa0';
+    p.ellipse(13, hy, 4, 3.4, G);
+    p.rect(10, hy - 4, 2, 1, G); p.set(10, hy - 5, G); p.set(10, hy - 4, P);
+    p.rect(15, hy - 4, 2, 1, G); p.set(16, hy - 5, G); p.set(16, hy - 4, P);
+    p.set(13, hy - 3, S);
+    p.ellipse(15.5, hy + 1.5, 1.8, 1.2, '#e6e8ef');
+    p.set(17, hy + 1, P);
+    p.rect(11, hy - 1, 2, 1, N); p.rect(14, hy - 1, 2, 1, N);    // smug closed eyes
+    p.set(15, hy + 3, P);                                          // :3
+    p.rect(10, hy + 4, 6, 1, '#3a8be0');                           // scarf
   }
   drawFrame(p, f) {
     const G = '#9aa0b4', S = '#5f6478', A = '#7a8096', L = '#e6e8ef', E = '#8be04e', P = '#f08aa0', C = '#3a8be0';
@@ -173,6 +207,20 @@ class Shelly extends Character {
   modifyIncoming(game, me, d) {
     return d.type === 'splash' ? Math.ceil(d.amount / 2) : d.amount;
   }
+  get dancePalette() { return { body: '#9cc76a', belly: '#e8d48a', limb: '#9cc76a', paw: '#8fbf5a' }; }
+  danceBack(p, k, dy) {
+    // the shell, worn like a backpack
+    p.ellipse(9, 13 + dy, 4.5, 6, '#4f8a3c');
+    for (const [x, y] of [[6, 10], [8, 13], [6, 15], [9, 9]]) p.rect(x, y + dy, 2, 2, '#3a6b2c');
+    p.rect(11, 8 + dy, 1, 11, '#8fbf5a');
+  }
+  danceHead(p, k, dy, hy) {
+    const K = '#9cc76a';
+    p.ellipse(13.5, hy + 0.5, 3.6, 3.3, K);
+    p.set(14, hy - 1, N); p.set(13, hy, N); p.set(15, hy, N);    // happy eyes
+    p.rect(15, hy + 2, 2, 1, N);                                  // grin
+    p.set(16, hy + 3, '#ef6f8f');
+  }
   drawFrame(p, f) {
     const S = '#4f8a3c', D = '#3a6b2c', H = '#8fbf5a', K = '#9cc76a', Y = '#e8d48a';
     const bob = f === 'idle1' ? 1 : 0;
@@ -229,6 +277,23 @@ class Bandit extends Character {
     const id = foe.items.splice(k, 1)[0];
     me.items.push(id);
     return { type: 'steal', item: id };
+  }
+  get dancePalette() { return { body: '#8a8f9a', belly: '#d4d6de', limb: '#6e7380', paw: '#2e3038' }; }
+  danceBack(p, k, dy) {
+    const tipX = k === 1 ? 2 : 4;
+    p.thick(8, 16 + dy, tipX, 9 + dy, '#8a8f9a');
+    p.rect(tipX + 1, 12 + dy, 2, 1, '#2e3038'); p.rect(tipX, 10 + dy, 2, 1, '#2e3038');
+  }
+  danceHead(p, k, dy, hy) {
+    const G = '#8a8f9a', M = '#2e3038', L = '#d4d6de';
+    p.ellipse(13, hy, 4, 3.6, G);
+    p.rect(10, hy - 5, 2, 2, G); p.rect(15, hy - 5, 2, 2, G);
+    p.set(10, hy - 4, L); p.set(16, hy - 4, L);
+    p.rect(10, hy - 1, 7, 2, M);                                  // bandit mask
+    p.set(12, hy - 1, WHITE); p.set(15, hy - 1, WHITE);           // shifty eyes
+    p.ellipse(16.5, hy + 1.5, 2, 1.3, L);
+    p.set(18, hy + 1, M);
+    p.set(16, hy + 3, '#ef6f8f');
   }
   drawFrame(p, f) {
     const G = '#8a8f9a', D = '#5a5e68', L = '#d4d6de', M = '#2e3038', A = '#6e7380';

@@ -4,7 +4,7 @@
  * They make combos work across turns: set up a status now, cash it in later.
  *
  * Damage entries carry `type` ('direct' | 'splash' | 'blast' | 'fall' | 'burn' | 'shock')
- * and `element` ('fire' | 'ice' | 'water' | 'shock' | undefined).
+ * and `element` ('fire' | 'ice' | 'wine' | 'shock' | undefined).
  * Add one by extending this class in catalog.js and calling `registerReaction()`.
  */
 export class Reaction {
@@ -12,7 +12,7 @@ export class Reaction {
     this.id = id;
     this.name = name;     // popup text, e.g. 'SHOCKED!'
     this.desc = desc;     // one line for the COMBO BOOK
-    this.icons = icons;   // item ids shown in the COMBO BOOK, e.g. ['water', 'lightning']
+    this.icons = icons;   // item ids shown in the COMBO BOOK, e.g. ['wine', 'lightning']
   }
 
   /** A hit `d` is about to land on `target`. Change d.amount / statuses; return true if it triggered. */

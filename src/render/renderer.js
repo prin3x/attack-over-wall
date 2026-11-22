@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { W, H, GROUND_Y, WALL, PLAYER_X, MAX_WIND, LAUNCH } from '../core/constants.js';
+import { W, H, GROUND_Y, WALL, PLAYER_X, MAX_WIND, LAUNCH, spawnX } from '../core/constants.js';
 import { DEFAULT_CHARACTERS } from '../core/characters/index.js';
 import { buildArt } from './art.js';
 
@@ -72,13 +72,16 @@ export class Renderer {
         { frames: Object.fromEntries(Object.entries(a.frames).map(([k, v]) => [k, tex(v)])), projectile: tex(a.projectile) },
       ]),
     );
-    this.players = DEFAULT_CHARACTERS.map((id, i) => {
-      const frames = this.charTex[id].frames;
+    // Up to 4 animals (2v2); setCharacters() decides how many are on the field.
+    this.players = [0, 1, 2, 3].map((i) => {
+      const frames = this.charTex[DEFAULT_CHARACTERS[i % 2]].frames;
       const mesh = sprite(frames.idle0, 0.5, 0, 5);
-      mesh.scale.x = i === 0 ? 1 : -1;
+      mesh.scale.x = i % 2 === 0 ? 1 : -1;
+      mesh.visible = i < 2;
       this.scene.add(mesh);
-      return { frames, mesh, state: 'idle', t: 0, facing: i === 0 ? 1 : -1, x: PLAYER_X[i] };
+      return { frames, mesh, state: 'idle', t: 0, facing: i % 2 === 0 ? 1 : -1, x: spawnX(4)[i], active: i < 2, ko: false };
     });
+    PLAYER_X.forEach((x, i) => (this.players[i].x = x));
 
     // umbrella shown above a shielded player
     const umbrellaTex = tex(art.icons.shield);
@@ -88,7 +91,7 @@ export class Renderer {
       this.scene.add(m);
       return m;
     });
-    this.status = [[], []];
+    this.status = [[], [], [], []];
 
     // frozen: a see-through ice block around the character
     const iceTex = tex(art.iceBlock);
@@ -103,7 +106,7 @@ export class Renderer {
     // projectile + off-screen marker
     this.icons = art.icons;
     // Default throws per player; any item can fly using its own icon (shot.look = item id).
-    this.projTex = { normal: DEFAULT_CHARACTERS.map((id) => this.charTex[id].projectile) };
+    this.projTex = { normal: [0, 1, 2, 3].map((i) => this.charTex[DEFAULT_CHARACTERS[i % 2]].projectile) };
     for (const [id, cv] of Object.entries({ ...art.icons, ...art.comboIcons })) this.projTex[id] = tex(cv);
     this.effects = [];
     // Several projectiles can fly at once (DUCK STORM), each with its own off-screen marker.
@@ -133,7 +136,7 @@ export class Renderer {
     this.scene.add(this.reticle);
 
     // Where each player's previous throw landed (arrow pointing down at the ground).
-    this.landings = [0xffb060, 0x8fd8ff].map((color) => {
+    this.landings = [0xffb060, 0x8fd8ff, 0xffb060, 0x8fd8ff].map((color) => {
       const m = sprite(markerTex, 0.5, 1, 4);
       m.rotation.z = Math.PI;
       m.material.color.set(color);
@@ -141,6 +144,14 @@ export class Renderer {
       this.scene.add(m);
       return { mesh: m, x: null };
     });
+
+    // 2v2: a bouncing arrow over whoever's turn it is.
+    this.turnArrow = sprite(markerTex, 0.5, 1, 9);
+    this.turnArrow.rotation.z = Math.PI;
+    this.turnArrow.material.color.set(0xffd84a);
+    this.turnArrow.visible = false;
+    this.turnArrowFor = null;
+    this.scene.add(this.turnArrow);
 
     // aim: a faint 0-90 degree dial around the thrower + a bright aim line
     const dot = (size, color, opacity, order) => {
@@ -182,21 +193,41 @@ export class Renderer {
 
   /** Which animal stands on each side this match. */
   setCharacters(ids) {
-    ids.forEach((id, i) => {
-      this.players[i].frames = this.charTex[id].frames;
-      this.players[i].mesh.material.map = this.charTex[id].frames.idle0;
+    const xs = spawnX(ids.length);
+    this.players.forEach((p, i) => {
+      p.active = i < ids.length;
+      p.mesh.visible = p.active;
+      this.status[i] = [];
+      if (!p.active) { this.iceBlocks[i].visible = this.umbrellas[i].visible = false; return; }
+      const id = ids[i];
+      p.x = xs[i];
+      p.frames = this.charTex[id].frames;
+      p.mesh.material.map = this.charTex[id].frames.idle0;
       this.projTex.normal[i] = this.charTex[id].projectile;
     });
   }
 
+  /** 2v2: knocked out for the rest of the match (stays upside down). */
+  ko(i) {
+    const p = this.players[i];
+    if (p.ko) return;
+    this.setState(p, 'lose');
+    p.ko = true;
+  }
+
+  /** Arrow over the player whose turn it is (null = hide). */
+  setTurnArrow(i) { this.turnArrowFor = i; }
+
   reset() {
-    this.players.forEach((p) => this.setState(p, 'idle'));
+    this.players.forEach((p) => { p.ko = false; p.slapTarget = null; p.slapT = undefined; this.setState(p, 'idle'); });
+    this.turnArrowFor = null;
     this.landings.forEach((l) => { l.x = null; l.mesh.visible = false; });
     this.hideAim();
     this.endProjectile();
   }
 
   setState(p, state) {
+    if (p.ko && state !== 'lose') return;   // knocked out animals stay down
     p.state = state;
     p.t = 0;
     p.mesh.material.color.set(0xffffff);
@@ -210,10 +241,23 @@ export class Renderer {
 
   /** Victory dance + mocking wiggle after landing a hit. */
   taunt(i) { this.setState(this.players[i], 'dance'); }
+  /** Game over: the winning team dances, everyone else is flattened. Team = index % 2. */
   setResult(winner) {
-    this.setState(this.players[winner], 'win');
-    this.setState(this.players[1 - winner], 'lose');
+    this.turnArrowFor = null;
+    this.players.forEach((p, i) => { if (p.active) this.setState(p, i % 2 === winner ? 'win' : 'lose'); });
+    // Each winner still standing picks a loser to go slap (2v2: one each).
+    const winners = this.players.filter((p) => p.state === 'win');
+    const losers = this.players.filter((p, i) => p.active && i % 2 !== winner);
+    winners.forEach((p, k) => {
+      const target = losers[k % losers.length];
+      p.slapTarget = target;
+      p.slapX = target.x - 17 * p.facing - (k >= losers.length ? 12 * p.facing : 0);
+      p.slaps = 0;
+    });
   }
+
+  /** Where player i is actually drawn right now (winners walk over to slap). */
+  drawnX(i) { return this.players[i].mesh.position.x; }
 
   setWind(w) { this.wind = w; }
 
@@ -306,6 +350,7 @@ export class Renderer {
       if (trail === 'fire') this.burst(x - this.projDir * 4, y, ['#ff6a2a', '#ffd84a', '#e04848'], 1, 20, 30);
       if (trail === 'spark' && frame % 2 === 0) this.burst(x, y, ['#ffd84a', '#ffffff'], 2, 40, 0);
       if (trail === 'drip' && frame % 3 === 0) this.burst(x, y - 3, ['#3a8be0', '#8fd8ff'], 1, 6, 160);
+      if (trail === 'wine' && frame % 3 === 0) this.burst(x, y - 3, ['#7a1f45', '#a8325e'], 1, 6, 160);
       if (trail === 'frost' && frame % 2 === 0) this.burst(x, y, ['#bfe9ff', '#ffffff', '#8fd8ff'], 1, 15, 40);
       if (trail === 'swirl' && frame % 2 === 0) {
         const r = 7, a = f * 0.5;
@@ -533,14 +578,40 @@ export class Renderer {
 
   addShake(v) { this.shake = Math.max(this.shake, v); }
 
+  /**
+   * Two-legged dance moves (taunts + victory): poses on the beat, squash on the squat,
+   * hop between, turn around for a butt wiggle every other bar, music notes.
+   */
+  dance(p, bpm) {
+    const beat = p.t * bpm;
+    const b = Math.floor(beat);
+    const frame = ['dance0', 'dance1', 'dance2', 'dance1'][b % 4];
+    const squat = frame === 'dance1';
+    const phase = beat - b;
+    const wiggle = Math.floor(b / 8) % 2 === 1;   // every other bar: turn around and shake it
+    p.note = (p.note || 0) - 1 / 60;
+    if (p.note <= 0) {
+      p.note = 0.3;
+      this.burst(p.x + (Math.random() * 16 - 8), GROUND_Y + 30, ['#ffd84a', '#ff8ad8', '#8fd8ff', '#5fd35a'], 1, 15, -40);
+    }
+    return {
+      frame,
+      oy: squat ? 0 : Math.round(Math.sin(phase * Math.PI) * 4),
+      sy: squat ? 0.88 : 1 + Math.sin(phase * Math.PI) * 0.08,
+      flip: wiggle ? -1 : 1,
+      ox: wiggle ? Math.round(Math.sin(p.t * 30) * 2) : Math.round(Math.sin(p.t * 4) * 3),
+    };
+  }
+
   update(dt) {
     this.time += dt;
 
     // characters
     this.players.forEach((p, i) => {
+      if (!p.active) return;
       p.t += dt;
       let frame = Math.floor(this.time * 2.5 + i * 0.5) % 2 ? 'idle1' : 'idle0';
-      let ox = 0, oy = 0, flip = 1, rot = 0;
+      let ox = 0, oy = 0, flip = 1, rot = 0, sy = 1;
       switch (p.state) {
         case 'windup': frame = 'windup'; break;
         case 'throw':
@@ -554,16 +625,47 @@ export class Renderer {
           if (p.t > 0.7) this.setState(p, 'idle');
           break;
         case 'win': {
-          // endless smug dance: hop, cycle poses, wiggle at the loser, a big jump now and then
-          frame = ['win', 'idle1', 'win', 'throw', 'win', 'idle0'][Math.floor(p.t * 7) % 6];
-          const big = p.t % 3 > 2.4;
-          oy = Math.floor(Math.abs(Math.sin(p.t * (big ? 6 : 11))) * (big ? 14 : 5));
-          ox = Math.round(Math.sin(p.t * 3) * 6);
-          flip = Math.floor(p.t * 3) % 2 ? -1 : 1;
+          // 1) leap over the fence to a loser, 2) slap them silly, 3) dance on two legs, repeat the slaps
+          const dx = p.slapTarget ? p.slapX - p.x : 0;
+          const LEAP = 0.5, LAND = 1.5;
+          if (p.t < LEAP) {
+            const d = this.dance(p, 8);
+            frame = d.frame; oy = d.oy; sy = d.sy;
+          } else if (p.t < LAND) {
+            const k = (p.t - LEAP) / (LAND - LEAP);
+            ox = Math.round(dx * k);
+            oy = Math.round(Math.sin(k * Math.PI) * 74);
+            rot = k * Math.PI * 2 * -p.facing;
+            frame = 'dance0';
+          } else {
+            ox = dx;
+            const ct = (p.t - LAND) % 5;
+            const round = Math.floor((p.t - LAND) / 5);
+            if (p.slapTarget && ct < 2.4) {
+              // slap combo: wind up, SMACK, backhand...
+              const n = Math.floor(ct / 0.4);
+              const st = ct % 0.4;
+              const backhand = n % 2 === 1;
+              frame = st < 0.14 ? 'throw' : 'windup';
+              flip = 1;
+              ox += st < 0.14 ? 2 : -1;
+              if (st < 0.14 && p.slaps !== round * 100 + n + 1) {
+                p.slaps = round * 100 + n + 1;
+                p.slapTarget.slapT = 0;
+                p.slapTarget.slapDir = p.facing * (backhand ? -1 : 1);
+                this.burst(p.slapTarget.x, GROUND_Y + 10, ['#ffffff', '#ffd84a', '#ff8ad8'], 8, 60);
+                this.addShake(2);
+                this.onSlap?.(this.players.indexOf(p.slapTarget), p.slapTarget.x);
+              }
+            } else {
+              const d = this.dance(p, 8);
+              frame = d.frame; oy = d.oy; sy = d.sy; flip = d.flip; ox = dx + d.ox;
+            }
+          }
           p.confetti = (p.confetti || 0) - dt;
           if (p.confetti <= 0) {
             p.confetti = 0.35;
-            this.burst(p.x + (Math.random() * 40 - 20), GROUND_Y + 40 + Math.random() * 20, ['#ffd84a', '#e04848', '#5fd35a', '#8fd8ff', '#ff8ad8'], 6, 60, 80);
+            this.burst(p.mesh.position.x + (Math.random() * 40 - 20), GROUND_Y + 40 + Math.random() * 20, ['#ffd84a', '#e04848', '#5fd35a', '#8fd8ff', '#ff8ad8'], 6, 60, 80);
           }
           break;
         }
@@ -588,12 +690,10 @@ export class Renderer {
           break;
         }
         case 'dance': {
-          // hop, cycle cheeky poses, and keep turning around to wiggle at the foe
-          frame = ['win', 'idle1', 'win', 'throw'][Math.floor(p.t * 8) % 4];
-          oy = Math.floor(Math.abs(Math.sin(p.t * 12)) * 5);
-          ox = Math.round(Math.sin(p.t * 22));
-          flip = Math.floor(p.t * 4) % 2 ? -1 : 1;
-          if (p.t > 1.6) this.setState(p, 'idle');
+          // stands up on two legs and busts a move at the foe
+          const d = this.dance(p, 9);
+          frame = d.frame; oy = d.oy; sy = d.sy; flip = d.flip; ox = d.ox;
+          if (p.t > 2.0) this.setState(p, 'idle');
           break;
         }
         case 'lose':
@@ -602,6 +702,14 @@ export class Renderer {
           p.mesh.material.color.set(0x9a9aa8);
           rot = Math.PI;
           oy = 21;
+          // getting slapped: head snaps sideways, the whole body spins a bit
+          if (p.slapT !== undefined && p.slapT < 0.3) {
+            p.slapT += dt;
+            const k = 1 - p.slapT / 0.3;
+            ox = Math.round(p.slapDir * 5 * k);
+            rot = Math.PI + p.slapDir * 0.5 * k;
+            frame = 'hurt';
+          }
           p.stars = (p.stars || 0) - dt;
           if (p.stars <= 0) {
             p.stars = 0.12;
@@ -613,6 +721,7 @@ export class Renderer {
       if (p.mesh.material.map !== p.frames[frame]) p.mesh.material.map = p.frames[frame];
       p.mesh.position.set(Math.round(p.x + ox), GROUND_Y - 1 + oy, 0);
       p.mesh.scale.x = p.facing * flip;
+      p.mesh.scale.y = sy;
       p.mesh.rotation.z = rot;
     });
 
@@ -647,6 +756,11 @@ export class Renderer {
       this.reticle.position.set(p.mesh.position.x - p.facing, GROUND_Y + 9, 0);
     }
 
+    // whose turn: arrow bobbing over their head
+    const ta = this.turnArrowFor === null ? null : this.players[this.turnArrowFor];
+    this.turnArrow.visible = !!ta;
+    if (ta) this.turnArrow.position.set(ta.x - ta.facing, GROUND_Y + 40 + Math.round(Math.abs(Math.sin(this.time * 5)) * 3), 0);
+
     // landing marker bobs gently
     for (const l of this.landings) {
       if (l.mesh.visible) l.mesh.position.y = GROUND_Y + 8 + Math.round(Math.abs(Math.sin(this.time * 4)) * 2);
@@ -654,6 +768,7 @@ export class Renderer {
 
     // statuses: umbrella above head, green stink puffs
     this.players.forEach((p, i) => {
+      if (!p.active) return;
       const st = this.status[i];
       const ice = this.iceBlocks[i];
       ice.visible = st.includes('ice');
@@ -667,6 +782,22 @@ export class Renderer {
       const u = this.umbrellas[i];
       u.visible = st.includes('umbrella');
       if (u.visible) u.position.set(p.mesh.position.x, GROUND_Y + 25 + Math.round(Math.sin(this.time * 3) * 1), 0);
+      if (st.includes('zapped')) {
+        p.zapT = (p.zapT || 0) - dt;
+        if (p.zapT <= 0) {
+          p.zapT = 0.12 + Math.random() * 0.25;
+          this.burst(p.x + (Math.random() * 16 - 8), GROUND_Y + 6 + Math.random() * 16, ['#ffd84a', '#ffffff', '#8fd8ff'], 2, 25);
+        }
+      }
+      if (st.includes('drunk')) {
+        // tipsy: sways on the spot, little pink hiccup bubbles
+        if (p.state === 'idle' || p.state === 'windup') p.mesh.rotation.z = Math.sin(this.time * 2.1 + i) * 0.12;
+        p.hicT = (p.hicT || 0) - dt;
+        if (p.hicT <= 0) {
+          p.hicT = 0.35 + Math.random() * 0.4;
+          this.burst(p.x + p.facing * 5, GROUND_Y + 20, ['#ff8ad8', '#ffc0e8'], 1, 6, -30);
+        }
+      }
       if (st.includes('wet')) {
         p.wetT = (p.wetT || 0) - dt;
         if (p.wetT <= 0) {

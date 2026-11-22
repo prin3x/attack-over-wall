@@ -23,4 +23,10 @@ export class Status {
 
   /** Multiplier for the owner's power-bar speed. */
   powerRate(game, player) { return 1; } // eslint-disable-line no-unused-vars
+
+  /** Degrees the owner's aim sways by itself while aiming (0 = steady). */
+  aimSway(game, player) { return 0; } // eslint-disable-line no-unused-vars
+
+  /** How badly the owner's power bar stutters while charging (0 = smooth, 1 = ZAPPED). */
+  powerStagger(game, player) { return 0; } // eslint-disable-line no-unused-vars
 }

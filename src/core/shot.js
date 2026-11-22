@@ -16,7 +16,7 @@ export class Shot {
     this.shots = 1;            // throws this turn
     this.inflicts = [];        // statuses applied to whoever takes damage: [{ status, value, direct? }]
                                //   direct: only on a direct hit (not splash / blast)
-    this.element = null;       // 'fire' | 'ice' | 'water' | 'shock': tags every hit for reactions
+    this.element = null;       // 'fire' | 'ice' | 'wine' | 'shock': tags every hit for reactions
     this.look = 'normal';      // sprite: 'normal' | 'bomb' | 'duck' | 'sock' ...
     this.lookRank = 0;
     this.trails = [];          // particle trails while flying: 'fuse' | 'stink'

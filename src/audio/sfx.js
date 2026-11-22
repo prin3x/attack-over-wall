@@ -1,4 +1,5 @@
 // Retro bleeps generated with WebAudio (no audio files needed).
+import { music } from './music.js';
 let ctx = null;
 let muted = false;
 
@@ -42,8 +43,9 @@ function noise({ d = 0.15, v = 0.2, cutoff = 1500 }) {
 }
 
 export const sfx = {
-  unlock() { ac(); },
-  toggleMute() { muted = !muted; return muted; },
+  /** First user gesture: wake the audio and start the background music. */
+  unlock() { music.start(ac()); },
+  toggleMute() { muted = !muted; music.setMuted(muted); return muted; },
   select() { tone({ f: 660, d: 0.05, v: 0.08 }); },
   move() { tone({ f: 440, d: 0.03, v: 0.05 }); },
   throw() { tone({ f: 220, f2: 900, d: 0.15, v: 0.07 }); },
@@ -59,6 +61,8 @@ Object.assign(sfx, {
   pickup() { [660, 880, 1320].forEach((f, i) => tone({ f, d: 0.08, v: 0.07, delay: i * 0.06 })); },
   use() { tone({ f: 330, f2: 990, d: 0.12, type: 'triangle', v: 0.15 }); },
   squeak() { tone({ f: 1400, f2: 900, d: 0.1, type: 'sine', v: 0.15 }); tone({ f: 1500, d: 0.05, type: 'sine', v: 0.1, delay: 0.08 }); },
+  slap() { noise({ d: 0.08, v: 0.5, cutoff: 6000 }); tone({ f: 260, f2: 120, d: 0.08, type: 'square', v: 0.1 }); },
+  hic() { tone({ f: 380, f2: 760, d: 0.07, type: 'square', v: 0.08 }); tone({ f: 700, f2: 500, d: 0.06, type: 'sine', v: 0.08, delay: 0.07 }); },
   sneeze() { tone({ f: 500, f2: 900, d: 0.15, type: 'sawtooth', v: 0.05 }); noise({ d: 0.25, v: 0.25, cutoff: 4000 }); },
   block() { tone({ f: 900, f2: 300, d: 0.15, type: 'square', v: 0.08 }); },
   boom() {

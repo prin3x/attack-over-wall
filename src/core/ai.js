@@ -11,7 +11,8 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
  * `skill` grows each CPU turn so it "zeroes in" like a human would.
  */
 export function cpuChooseShot(game, idx, skill = 0) {
-  const foe = game.players[1 - idx];
+  const me = game.players[idx];
+  const foes = game.enemiesOf(idx);
   let best = { score: Infinity, angle: 45, power: 70 };
 
   for (let angle = 25; angle <= 70; angle += 5) {
@@ -19,12 +20,13 @@ export function cpuChooseShot(game, idx, skill = 0) {
       const flights = game.volley(idx, angle, power);
       const result = flights[Math.floor(flights.length / 2)].result;
       let dmg = 0;
-      for (const f of flights) for (const d of f.result.damages) dmg += d.idx === 1 - idx ? d.amount : -1.5 * d.amount;
+      // Damage to enemies is good; hurting myself or a teammate is bad.
+      for (const f of flights) for (const d of f.result.damages) dmg += game.players[d.idx].team !== me.team ? d.amount : -1.5 * d.amount;
       let score;
       if (dmg !== 0) score = -dmg;
       else if (result.kind === 'wall') score = 200;
       else if (result.kind === 'out') score = 300;
-      else score = Math.abs(result.x - foe.x);
+      else score = Math.min(...foes.map((f) => Math.abs(result.x - f.x)));
       score += Math.abs(angle - 50) * 0.05 + Math.random() * 0.5;
       if (score < best.score) best = { score, angle, power };
     }

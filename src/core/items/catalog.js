@@ -45,14 +45,24 @@ class FrozenStatus extends Status {
   }
 }
 
-class WetStatus extends Status {
-  constructor() { super({ id: 'wet', icon: 'water', label: 'WET!', visual: 'wet', showCount: true }); }
-  onTurnStart(game, p) {
-    const left = p.status.wet - 1;
-    if (left > 0) p.status.wet = left;
+class ZappedStatus extends Status {
+  // Next own turn: the power bar twitches and jumps around while you charge.
+  constructor() { super({ id: 'zapped', icon: 'lightning', label: 'ZAPPED!', visual: 'zapped' }); }
+  onTurnStart() { return { text: 'BZZT!', cls: 'item', sound: 'zap' }; }
+  onTurnEnd(game, p) { game.removeStatus(p, this.id); }
+  powerStagger() { return 1; }
+}
+
+class DrunkStatus extends Status {
+  // `value` = own turns still to play drunk; the aim angle sways by itself the whole time.
+  constructor() { super({ id: 'drunk', icon: 'wine', label: 'DRUNK!', visual: 'drunk', showCount: true }); }
+  onTurnStart() { return { text: 'HIC!', cls: 'item', sound: 'hic' }; }
+  onTurnEnd(game, p) {
+    const left = p.status.drunk - 1;
+    if (left > 0) p.status.drunk = left;
     else game.removeStatus(p, this.id);
-    return null;
   }
+  aimSway() { return 15; }
 }
 
 class PepperStatus extends Status {
@@ -149,29 +159,34 @@ class IceItem extends Item {
   }
 }
 
-class WaterItem extends Item {
-  constructor() { super({ id: 'water', name: 'WATER BALLOON', desc: 'SOAKS FOE: WET 2 TURNS', weight: 7, kind: 'attack', cpuPriority: 4 }); }
+class WineItem extends Item {
+  constructor() { super({ id: 'wine', name: 'WINE BOTTLE', desc: 'FOE GETS DRUNK: AIM SWAYS 2 TURNS', weight: 7, kind: 'attack', cpuPriority: 5 }); }
   modifyShot(shot) {
     shot.capDamage(8, 12);
-    shot.element = 'water';
-    shot.inflicts.push({ status: 'wet', value: 2 });
-    shot.setLook('water', 1);
-    shot.trails.push('drip');
+    shot.element = 'wine';
+    shot.inflicts.push({ status: 'drunk', value: 2 });
+    shot.setLook('wine', 1);
+    shot.trails.push('wine');
   }
   drawIcon(p) {
-    p.ellipse(5, 4.5, 4, 4.2, '#3a8be0');
-    p.ellipse(4, 3.5, 2, 2, '#8fd8ff');
-    p.set(3, 2, WHITE);
-    p.rect(4, 8, 2, 1, '#2a6ab0'); p.set(5, 9, '#e04848');
+    const G = '#3a1a2e', W = '#7a1f45';
+    p.rect(4, 0, 2, 1, '#c89a5a');            // cork
+    p.rect(4, 1, 2, 3, G);                    // neck
+    p.rect(3, 4, 4, 6, G);                    // body
+    p.rect(3, 6, 4, 2, '#f0e0c0');            // label
+    p.set(4, 7, W); p.set(5, 7, W);
+    p.set(4, 4, '#8a4a6a'); p.set(4, 5, '#8a4a6a');   // shine
   }
 }
 
 class LightningItem extends Item {
-  constructor() { super({ id: 'lightning', name: 'LIGHTNING', desc: 'THROW A BOLT: X3 DAMAGE ON A WET FOE', weight: 6, kind: 'attack', cpuPriority: 6 }); }
-  // Thrown like anything else; every hit it makes is a SHOCK (SHOCKED x3 on WET foes).
+  constructor() { super({ id: 'lightning', name: 'LIGHTNING', desc: 'ZAPS FOE: POWER BAR GLITCHES, X3 IF DRUNK', weight: 6, kind: 'attack', cpuPriority: 6 }); }
+  // Thrown like anything else; every hit it makes is a SHOCK (SHOCKED x3 on wine-soaked foes)
+  // and leaves the target ZAPPED: their power bar stutters on their next turn.
   modifyShot(shot) {
     shot.capDamage(12, 18);
     shot.element = 'shock';
+    shot.inflicts.push({ status: 'zapped', value: 1 });
     shot.setLook('lightning', 2);
     shot.trails.push('spark');
   }
@@ -390,11 +405,11 @@ class SkatingDuckCombo extends Combo {
 // =====================================================================
 
 class ShockedReaction extends Reaction {
-  constructor() { super({ id: 'shocked', name: 'SHOCKED!', desc: 'LIGHTNING ON A WET FOE: X3 DAMAGE', icons: ['water', 'lightning'] }); }
+  constructor() { super({ id: 'shocked', name: 'SHOCKED!', desc: 'LIGHTNING ON A WINE-SOAKED FOE: X3 DAMAGE', icons: ['wine', 'lightning'] }); }
   onHit(game, t, d) {
-    if (d.element !== 'shock' || !t.status.wet) return false;
+    if (d.element !== 'shock' || !t.status.drunk) return false;
     d.amount *= 3;
-    game.removeStatus(t, 'wet');
+    game.removeStatus(t, 'drunk');   // zapped sober
     return true;
   }
 }
@@ -419,27 +434,26 @@ class GasReaction extends Reaction {
   }
 }
 
-class FizzleReaction extends Reaction {
-  constructor() { super({ id: 'fizzle', name: 'FIZZLE!', desc: 'WET FOES DO NOT BURN IN FLOOR FIRE', icons: ['water', 'pepper'] }); }
+class FlambeReaction extends Reaction {
+  constructor() { super({ id: 'flambe', name: 'FLAMBE!', desc: 'FIRE ON A DRUNK FOE: X2 DAMAGE', icons: ['wine', 'pepper'] }); }
   onHit(game, t, d) {
-    if (d.type !== 'burn' || !t.status.wet) return false;
-    d.amount = 0;
+    if (d.element !== 'fire' || !t.status.drunk) return false;
+    d.amount *= 2;
     return true;
   }
 }
 
 class DeepFreezeReaction extends Reaction {
-  constructor() { super({ id: 'deepfreeze', name: 'DEEP FREEZE!', desc: 'FREEZE A WET FOE: +1 FROZEN TURN', icons: ['water', 'ice'] }); }
+  constructor() { super({ id: 'deepfreeze', name: 'DEEP FREEZE!', desc: 'FREEZE A DRUNK FOE: +1 FROZEN TURN', icons: ['wine', 'ice'] }); }
   onInflict(game, t, status, value) {
-    if (status !== 'frozen' || !t.status.wet) return value;
+    if (status !== 'frozen' || !t.status.drunk) return value;
     this.triggered = true;
-    game.removeStatus(t, 'wet');
     return value + 1;
   }
 }
 
 // ---------------------------------------------------------------------
-[ShieldStatus, StinkStatus, PepperStatus, FrozenStatus, WetStatus].forEach((S) => registerStatus(new S()));
-[DoubleItem, BombItem, CalmItem, ShieldItem, FanItem, GiantItem, DuckItem, SockItem, PepperItem, IceItem, WaterItem, LightningItem].forEach((I) => registerItem(new I()));
+[ShieldStatus, StinkStatus, PepperStatus, FrozenStatus, DrunkStatus, ZappedStatus].forEach((S) => registerStatus(new S()));
+[DoubleItem, BombItem, CalmItem, ShieldItem, FanItem, GiantItem, DuckItem, SockItem, PepperItem, IceItem, WineItem, LightningItem].forEach((I) => registerItem(new I()));
 [NukeCombo, QuackBombCombo, DuckStormCombo, SpicyStinkCombo, DuckzillaCombo, HomingCombo, ParachuteCombo, TornadoCombo, FireBombCombo, FlappyDuckCombo, FrostBombCombo, IcebergCombo, SkatingDuckCombo].forEach((C) => registerCombo(new C()));
-[ShockedReaction, ShatterReaction, GasReaction, FizzleReaction, DeepFreezeReaction].forEach((R) => registerReaction(new R()));
+[ShockedReaction, ShatterReaction, GasReaction, FlambeReaction, DeepFreezeReaction].forEach((R) => registerReaction(new R()));

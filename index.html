@@ -14,11 +14,11 @@
       <canvas id="game"></canvas>
       <div id="ui">
         <div id="hud" class="hidden">
-          <div class="hp left">
+          <div id="panel0" class="hp left">
             <div class="label"><span id="name0">BISCUIT</span> <span id="hpv0" class="num">100</span></div>
             <div class="bar"><div id="hp0" class="fill ok"></div></div>
           </div>
-          <div class="hp right">
+          <div id="panel1" class="hp right">
             <div class="label"><span id="hpv1" class="num">100</span> <span id="name1">MISO</span></div>
             <div class="bar"><div id="hp1" class="fill ok"></div></div>
           </div>
@@ -50,7 +50,8 @@
           <p class="sub">DOG vs CAT</p>
           <button data-mode="cpu">1P VS CPU</button>
           <button data-mode="local">2P SAME PC</button>
-          <button data-mode="online">2P ONLINE</button>
+          <button data-mode="teams">2V2 TEAMS</button>
+          <button data-mode="online">ONLINE</button>
           <button id="openBook">COMBO BOOK</button>
           <p class="hint">MOUSE OR UP/DOWN TO AIM<br />HOLD CLICK OR SPACE TO THROW<br />PICK ITEMS - USE WITH 1-4</p>
         </div>
@@ -70,7 +71,8 @@
         <div id="online" class="screen hidden">
           <h2>ONLINE</h2>
           <div id="lobbyHome" class="lobby">
-            <button id="createRoom">CREATE ROOM</button>
+            <button id="createRoom">NEW 1V1 ROOM</button>
+            <button id="createTeamRoom">NEW 2V2 ROOM</button>
             <div class="join-row">
               <input id="joinCode" maxlength="5" placeholder="CODE" autocomplete="off" spellcheck="false" />
               <button id="joinRoom">JOIN</button>
@@ -84,6 +86,20 @@
             <button id="lobbyCancel">CANCEL</button>
           </div>
           <p id="lobbyMsg" class="hint"></p>
+        </div>
+
+        <div id="teams" class="screen hidden">
+          <h3 id="teamsTitle">2V2 TEAMS</h3>
+          <p id="teamsCode" class="sub hidden"></p>
+          <div id="seatGrid">
+            <div class="team-col left"><p class="team-name">ORANGE</p><div id="seatCol0"></div></div>
+            <div class="team-col right"><p class="team-name">BLUE</p><div id="seatCol1"></div></div>
+          </div>
+          <div class="team-btns">
+            <button id="teamsStart">START</button>
+            <button id="teamsBack">BACK</button>
+          </div>
+          <p id="teamsMsg" class="hint">CLICK A SEAT: PLAYER OR CPU</p>
         </div>
 
         <div id="book" class="screen hidden">

@@ -61,6 +61,22 @@ html, body {
 }
 .hp.right .fill { margin-left: auto; }
 .fill { height: 100%; transition: width 0.4s steps(8); }
+
+/* ---- 2v2: four compact HP panels, team colors, turn highlight ---- */
+#hud.teams .hp { top: 2px; width: 104px; }
+#hud.teams .hp.row2 { top: 15px; }
+#hud.teams .hp .label { font-size: 5px; margin-bottom: 1px; display: flex; align-items: center; gap: 3px; height: 6px; }
+#hud.teams .hp.right .label { justify-content: flex-end; }
+#hud.teams .bar { height: 3px; }
+#hud.teams .hp.left .label span:not(.num) { color: #ffb060; }
+#hud.teams .hp.right .label span:not(.num) { color: #8fd8ff; }
+#hud.teams .hp.active .label span:not(.num) { color: var(--gold); }
+#hud.teams .hp.active .label::before { content: '>'; color: var(--gold); }
+#hud.teams .hp.right.active .label::before { content: none; }
+#hud.teams .hp.right.active .label::after { content: '<'; color: var(--gold); }
+#hud.teams .hp.ko { opacity: 0.45; }
+#hud.teams .status { position: static; display: inline-flex; gap: 1px; }
+#hud.teams .status img { width: 6px; height: 6px; }
 .fill.ok { background: #5fd35a; }
 .fill.mid { background: #f0c03a; }
 .fill.low { background: #e04848; }
@@ -379,3 +395,30 @@ img { image-rendering: pixelated; }
 }
 
 .popup.react { color: #8fd8ff; font-size: 12px; text-shadow: 2px 2px 0 #2a6ab0, 3px 3px 0 var(--ink); animation-duration: 1.6s; }
+
+/* ---- 2v2 team setup / online team lobby ---- */
+#teams h3 { margin: 0 0 4px; font-size: 8px; color: var(--gold); }
+#teamsCode { margin: 0 0 4px; color: var(--gold); }
+#seatGrid { display: flex; gap: 10px; margin-bottom: 6px; }
+.team-col { display: flex; flex-direction: column; align-items: center; }
+.team-col .team-name { margin: 0 0 3px; font-size: 6px; }
+.team-col.left .team-name { color: #ffb060; }
+.team-col.right .team-name { color: #8fd8ff; }
+.team-col > div { display: flex; flex-direction: column; gap: 3px; }
+#teams .seat { width: 92px; font-size: 6px; text-align: left; display: flex; gap: 4px; }
+#teams .seat .p { color: #e6d2a8; }
+#teams .seat.you .who { color: var(--gold); }
+#teams .seat.cpu .who { color: #9a9aa8; }
+#teams .seat:disabled { opacity: 1; }
+.team-btns { display: flex; gap: 6px; }
+.team-btns button { width: 60px !important; }
+#teamsStart:disabled { opacity: 0.4; }
+#teams .seat.sel .who, #teams .seat:not(:disabled):hover .who,
+#teams .seat.sel .p, #teams .seat:not(:disabled):hover .p { color: var(--ink); }
+
+/* menu: 5 buttons need to fit in 180px */
+#menu { gap: 3px; }
+#menu h1 { font-size: 14px; }
+#menu .sub { margin: 0 0 2px; font-size: 7px; }
+#menu button { padding: 2px 6px; }
+#menu .hint { margin-top: 3px; }

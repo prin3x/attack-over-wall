@@ -23,6 +23,10 @@ export const SPLASH_MAX = 14;
 export const WALL = { x0: 152, x1: 168, y0: GROUND_Y, y1: GROUND_Y + 56 };
 
 export const PLAYER_X = [36, 284];
+// 2v2: turn order A1, B1, A2, B2 (team = index % 2). A1/B1 stand in front, A2/B2 at the back.
+export const TEAM_X = [62, 258, 26, 294];
+export const spawnX = (n) => (n === 4 ? TEAM_X : PLAYER_X);
+export const TEAM_NAMES = ['ORANGE', 'BLUE'];
 
 // Offsets relative to a player's x (multiplied by facing) and GROUND_Y.
 export const LAUNCH = { dx: 9, dy: 14 };

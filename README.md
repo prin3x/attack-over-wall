@@ -106,6 +106,8 @@ If a NUKE knocks out both players, the thrower loses.
 | STINKY SOCK | 12 dmg + stink: -4 HP at the start of the target's next 3 turns |
 | PEPPER | Thrown: if it hits, the target sneezes next turn (power bar 2.2x faster) |
 | ICE CUBE | Direct hit freezes the foe: their next turn is skipped |
+| WINE BOTTLE | Thrown bottle (8/12): the foe gets DRUNK for their next 2 turns, their aim angle keeps swaying by itself (about 15 degrees) |
+| LIGHTNING | Thrown bolt (12/18 shock damage), a bolt strikes from the sky where it lands. Any hit leaves the foe ZAPPED: on their next turn the power bar stalls, jolts and flips while charging |
 | UMBRELLA | Blocks the next hit |
 | CALM | Wind becomes 0 |
 | BIG FAN | Strong tailwind toward the enemy |
@@ -161,14 +163,34 @@ Useful `Shot` knobs for combos: `explosion` (`self`, `style: 'nuke'`, `fixed`), 
 
 Lasting effects are `Status` classes (`src/core/items/Status.js`) with `onTurnStart`, `onTurnEnd`,
 `blocksHit` and `powerRate` hooks. Register them with `registerStatus()`, and have an item apply one with
+**Reactions** (a hit meets a status that's already on the target):
+
+| Setup | Then | Reaction |
+| --- | --- | --- |
+| DRUNK (wine) | LIGHTNING | SHOCKED! x3 damage (and zapped sober) |
+| FROZEN | any hit | SHATTER! x2 damage, the ice breaks |
+| STINKY | fire (FIRE BOMB / floor fire) | GAS EXPLOSION! +20 |
+| DRUNK | fire | FLAMBE! x2 fire damage |
+| DRUNK | ICE CUBE | DEEP FREEZE! +1 frozen turn |
+
 `shot.inflicts.push({ status, value })` (on hit) or `game.addStatus(player, id, value)` (on use).
+
+## Music
+
+A quiet original chiptune loop (`src/audio/music.js`), synthesized with WebAudio, starts on the first click or key. `M` mutes music and sound effects.
 
 ## Modes
 
 - **1P vs CPU**: the CPU starts sloppy and gets more accurate each turn.
 - **2P same PC**: hot-seat, same controls for both players.
-- **2P online**: CREATE ROOM gives a 5-letter code and an invite link (`?room=CODE`); your friend
+- **2V2 TEAMS**: two animals per side (ORANGE vs BLUE), turns go P1, P2, P3, P4 (teams alternate).
+  Each seat is a PLAYER (hot-seat) or a CPU. Throws fly through your teammate, but splash and
+  blasts don't care whose side you're on. A knocked-out animal stays down; a team loses when both are down.
+- **Online 1v1**: NEW 1V1 ROOM gives a 5-letter code and an invite link (`?room=CODE`); your friend
   joins with the code or the link. You can watch each other aim live. Refreshing the page rejoins the match.
+- **Online 2V2**: NEW 2V2 ROOM; friends join with the code and click a seat. The host presses START and
+  open seats become CPUs (run by the host's browser). If someone leaves mid-match a CPU takes over their
+  animal; opening the link again gives them their seat back from the next turn.
 
 ## Project layout
 

@@ -45,4 +45,43 @@ export class Character {
 
   /** Pixel art on a 24x24 canvas (drawn facing right). frame: idle0|idle1|windup|throw|hurt|win */
   drawFrame(p, frame) {} // eslint-disable-line no-unused-vars
+
+  // ----- dancing on two legs (taunts + victory) -----
+  // A shared upright body; each animal adds its head (danceHead) and tail/shell (danceBack).
+  // `dancePalette` = { body, belly, limb, paw }.
+
+  /** Dance pose k (0-2): 0 = raise the roof, 1 = disco squat, 2 = leg kick. */
+  drawDance(p, k) {
+    const c = this.dancePalette;
+    if (!c) { this.drawFrame(p, 'win'); return; }
+    const pose = DANCE_POSES[k];
+    const dy = pose.dy;
+    this.danceBack(p, k, dy);
+    for (const leg of pose.legs) {
+      for (let i = 0; i < leg.length - 2; i += 2) p.thick(leg[i], leg[i + 1], leg[i + 2], leg[i + 3], c.limb);
+      p.rect(leg[leg.length - 2] - 1, leg[leg.length - 1], 3, 1, c.paw);
+    }
+    p.ellipse(12, 13 + dy, 4, 4.5, c.body);
+    p.ellipse(12.5, 14 + dy, 2.5, 3, c.belly);
+    this.danceBody(p, k, dy);
+    for (const [x0, y0, x1, y1] of pose.arms) {
+      p.thick(x0, y0 + dy, x1, y1 + dy, c.limb);
+      p.rect(x1, y1 + dy, 2, 1, c.paw);
+    }
+    this.danceHead(p, k, dy, 5 + dy);
+  }
+
+  /** Behind the body: tail, shell... */
+  danceBack(p, k, dy) {} // eslint-disable-line no-unused-vars
+  /** On top of the body: stripes, markings... */
+  danceBody(p, k, dy) {} // eslint-disable-line no-unused-vars
+  /** The head, centered around (13, hy). */
+  danceHead(p, k, dy, hy) {} // eslint-disable-line no-unused-vars
 }
+
+// Legs: polylines [x0,y0, x1,y1, ...] ending at the foot; arms: [shoulder x,y, hand x,y]. Facing right.
+const DANCE_POSES = [
+  { dy: 0, legs: [[10, 17, 9, 21], [13, 17, 17, 19]], arms: [[8, 11, 6, 3], [15, 11, 17, 3]] },
+  { dy: 1, legs: [[10, 17, 7, 19, 8, 21], [13, 17, 16, 19, 15, 21]], arms: [[8, 11, 4, 14], [15, 11, 19, 4]] },
+  { dy: 0, legs: [[10, 17, 6, 19], [13, 17, 14, 21]], arms: [[8, 11, 5, 3], [15, 11, 19, 14]] },
+];

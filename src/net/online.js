@@ -6,8 +6,8 @@ export class Online {
     this.onClose = () => {};
   }
 
-  static async createRoom() {
-    const res = await fetch('/api/new');
+  static async createRoom(size = 2) {
+    const res = await fetch(size === 4 ? '/api/new?size=4' : '/api/new');
     if (!res.ok) throw new Error('server error');
     return (await res.json()).code;
   }

@@ -1,6 +1,6 @@
 import {
   W, GROUND_Y, DT, GRAVITY, MAX_SPEED, WIND_ACCEL, MAX_WIND,
-  WALL, PLAYER_X, LAUNCH, HEAD, BODY,
+  WALL, spawnX, LAUNCH, HEAD, BODY,
 } from './constants.js';
 import { mulberry32 } from './rng.js';
 import { Shot } from './shot.js';
@@ -20,12 +20,15 @@ export class Game {
   constructor(seed = (Math.random() * 2 ** 32) >>> 0, chars = DEFAULT_CHARACTERS) {
     this.seed = seed >>> 0;
     this.rng = mulberry32(this.seed);
-    this.players = [0, 1].map((i) => {
-      const c = CHARACTERS[chars[i]] || CHARACTERS[DEFAULT_CHARACTERS[i]];
+    // 2 players = 1v1, 4 players = 2v2. Team = index % 2 (left = 0), so turns go A1, B1, A2, B2.
+    const xs = spawnX(chars.length === 4 ? 4 : 2);
+    this.players = xs.map((x, i) => {
+      const c = CHARACTERS[chars[i]] || CHARACTERS[DEFAULT_CHARACTERS[i % 2]];
       return {
         char: c.id,
-        x: PLAYER_X[i],
-        facing: i === 0 ? 1 : -1,
+        team: i % 2,
+        x,
+        facing: i % 2 === 0 ? 1 : -1,
         hp: c.maxHp,
         maxHp: c.maxHp,
         angle: 45,
@@ -37,7 +40,8 @@ export class Game {
     this.events = [];     // passive triggers for the UI (nine lives, steals...)
     this.hazards = [];    // things burning/lying on the floor: { type, x, radius, damage, left }
     this.turn = 0;
-    this.winner = null;
+    this.lastOf = [0, this.players.length - 1];   // per team: who played last (teams take turns, members rotate)
+    this.winner = null;             // winning TEAM (in 1v1 that's also the player index)
     this.wind = 0;
     this.shot = new Shot();
     this.used = [];       // item ids used this turn (each type once per turn)
@@ -55,7 +59,26 @@ export class Game {
     this.events = [];
     return e;
   }
-  get opponent() { return this.players[1 - this.turn]; }
+  /** The first enemy still standing (in 1v1: simply the other player). */
+  get opponent() { return this.enemiesOf(this.turn)[0] || this.players[1 - this.current.team]; }
+  get teams() { return this.players.length > 2; }
+  isEnemy(a, b) { return this.players[a].team !== this.players[b].team; }
+  /** Alive enemies of player idx. */
+  enemiesOf(idx) { return this.players.filter((p) => p.team !== this.players[idx].team && p.hp > 0); }
+  teamAlive(t) { return this.players.some((p) => p.team === t && p.hp > 0); }
+
+  /** Next player: the other team's next member still standing (falls back to my own team). */
+  nextPlayer() {
+    const n = this.players.length;
+    const team = 1 - this.current.team;
+    for (const t of [team, 1 - team]) {
+      for (let k = 1; k <= n; k++) {
+        const i = (this.lastOf[t] + k) % n;
+        if (this.players[i].team === t && this.players[i].hp > 0) return i;
+      }
+    }
+    return this.turn;
+  }
 
   rollWind() {
     this.wind = Math.round(this.rng() * MAX_WIND * 2 - MAX_WIND);
@@ -66,6 +89,7 @@ export class Game {
   snapshot() {
     return {
       turn: this.turn,
+      lastOf: [...this.lastOf],
       wind: this.wind,
       winner: this.winner,
       draft: this.draft ? [...this.draft] : null,
@@ -77,6 +101,7 @@ export class Game {
   /** Overwrite local state with the server's (keeps both screens identical). */
   applySnapshot(s) {
     this.turn = s.turn;
+    if (s.lastOf) this.lastOf = [...s.lastOf];
     this.wind = s.wind;
     this.winner = s.winner;
     this.draft = s.draft ? [...s.draft] : null;
@@ -100,6 +125,16 @@ export class Game {
     return Object.keys(p.status).reduce((m, id) => m * STATUSES[id].powerRate(this, p), this.charOf(p).controlRate);
   }
 
+  /** How much p's power bar stutters, e.g. ZAPPED. */
+  powerStagger(p) {
+    return Math.max(0, ...Object.keys(p.status).map((id) => STATUSES[id].powerStagger(this, p)));
+  }
+
+  /** How far (degrees) p's aim drifts by itself, e.g. DRUNK. */
+  aimSway(p) {
+    return Math.max(0, ...Object.keys(p.status).map((id) => STATUSES[id].aimSway(this, p)));
+  }
+
   /** Is player p standing inside floor hazard h? */
   inHazard(p, h) {
     const bx = p.x + BODY.dx * p.facing;
@@ -121,7 +156,7 @@ export class Game {
       this.events.push({ type: 'survive', idx, text: this.charOf(p).passive.name });
     }
     p.hp -= dealt;
-    if (p.hp === 0 && this.winner === null) this.winner = 1 - idx;
+    if (p.hp === 0 && this.winner === null && !this.teamAlive(p.team)) this.winner = 1 - p.team;
     return dealt;
   }
 
@@ -156,6 +191,8 @@ export class Game {
       h.left--;
     }
     this.hazards = this.hazards.filter((h) => h.left > 0);
+    // Knocked out at the start of your own turn (stink, fire) with a teammate still up: turn passes.
+    if (p.hp === 0) skipped = true;
     // A skipped turn gets no draft (keeps the RNG in step on every machine).
     this.draft = !skipped && p.items.length < BAG_SIZE ? rollDraft(this.rng, this.charOf(p).draftSize) : null;
     return { effects, draft: this.draft, skipped };
@@ -203,7 +240,8 @@ export class Game {
   endTurn() {
     const p = this.current;
     for (const id of Object.keys(p.status)) STATUSES[id].onTurnEnd(this, p);
-    this.turn = 1 - this.turn;
+    this.turn = this.nextPlayer();
+    this.lastOf[this.current.team] = this.turn;
     this.rollWind();
   }
 
@@ -221,8 +259,7 @@ export class Game {
   /** Apply every projectile of a volley, then count it as one shot. */
   applyVolley(flights) {
     const me = this.current;
-    const foe = this.opponent;
-    const before = foe.hp;
+    const before = this.players.map((p) => p.hp);
     for (const f of flights) {
       this.applyResult(f.result);
       if (f.result.hazard) this.hazards.push({ ...f.result.hazard });
@@ -233,7 +270,11 @@ export class Game {
       }
     }
     // Passive: something that triggers when my volley actually hurt the foe (e.g. STICKY PAWS).
-    if (foe.hp < before) {
+    let foe = null;
+    this.players.forEach((p, i) => {
+      if (p.team !== me.team && before[i] - p.hp > 0 && (!foe || before[i] - p.hp > before[this.players.indexOf(foe)] - foe.hp)) foe = p;
+    });
+    if (foe) {
       const ev = this.charOf(me).onVolleyHit(this, me, foe);
       if (ev) this.events.push({ ...ev, idx: this.turn });
     }
@@ -257,9 +298,11 @@ export class Game {
     const vx0 = shot.vortex;
     const vortexEnd = vx0 ? vx0.start + vx0.loops * vx0.period : -1;
     let sliding = false;
-    const foe = this.players[1 - idx];
-    const foeX = foe.x + BODY.dx * foe.facing;
-    const foeY = GROUND_Y + BODY.dy;
+    // Homing target: whichever enemy the missile gets close to first.
+    const targets = this.players
+      .map((t, i) => ({ i, x: t.x + BODY.dx * t.facing, y: GROUND_Y + BODY.dy, t }))
+      .filter((o) => o.t.team !== p.team && o.t.hp > 0);
+    let foeX = 0, foeY = 0;
     const mult = this.charOf(p).damageMult;   // POWER stat
     const dmg = (n) => Math.max(1, Math.round(n * mult));
     const element = shot.element || undefined;
@@ -277,9 +320,10 @@ export class Game {
       const lift = [];
       if (shot.tornado && kind !== 'out') {
         damages = damages.slice();
-        for (let i = 0; i < 2; i++) {
+        for (let i = 0; i < this.players.length; i++) {
           if (i === idx) continue;
           const t = this.players[i];
+          if (t.hp <= 0) continue;
           const bx = t.x + BODY.dx * t.facing;
           if (Math.abs(x - bx) <= shot.tornado.radius + BODY.r * this.charOf(t).sizeScale) {
             damages.push({ idx: i, amount: dmg(shot.tornado.damage), type: 'fall' });
@@ -289,15 +333,20 @@ export class Game {
       }
       // Leave a floor hazard where it landed (not if it flew off screen).
       const hazard = shot.hazard && kind !== 'out' && x > 0 && x < W
-        ? { type: shot.hazard.type, x: Math.round(x), radius: shot.hazard.radius, damage: shot.hazard.damage, left: shot.hazard.rounds * 2 }
+        ? { type: shot.hazard.type, x: Math.round(x), radius: shot.hazard.radius, damage: shot.hazard.damage, left: shot.hazard.rounds * this.players.length }
         : null;
       return { points, result: { kind, x, y, damages, inflicts: shot.inflicts, style: shot.explosion?.style || 'bomb', blasts, hazard, lift, element } };
     };
 
     for (let step = 0; step < 1200; step++) {
-      if (hm && !locked && Math.hypot(x - foeX, y - foeY) < hm.range) {
-        locked = true;
-        points.push({ x, y, lock: true });
+      if (hm && !locked) {
+        const tg = targets.find((o) => Math.hypot(x - o.x, y - o.y) < hm.range);
+        if (tg) {
+          locked = true;
+          foeX = tg.x;
+          foeY = tg.y;
+          points.push({ x, y, lock: true, target: tg.i });
+        }
       }
       const inVortex = vx0 && step >= vx0.start && step < vortexEnd;
       if (sliding) {
@@ -330,8 +379,10 @@ export class Game {
       x += vx * DT;
       y += vy * DT;
 
-      for (let i = 0; i < 2; i++) {
+      for (let i = 0; i < this.players.length; i++) {
         if (i === idx && step < 30) continue;
+        const t = this.players[i];
+        if (t.hp <= 0 || (i !== idx && t.team === p.team)) continue;   // throws fly through teammates and KO'd animals
         const kind = hitTest(this.players[i], this.charOf(this.players[i]).sizeScale, x, y, grow);
         if (kind) return done(kind, [{ idx: i, amount: dmg(shot.damage[kind]), type: 'direct', element }]);
       }
@@ -359,11 +410,14 @@ export class Game {
           points.push({ x, y, bounce: true, blast: !!blast });
           continue;
         }
+        // Near miss: splash hurts everyone close by except the thrower (yes, teammates too).
         const damages = [];
-        const t = this.players[1 - idx];
-        const d = Math.abs(x - (t.x + BODY.dx * t.facing));
-        const r = shot.splashRadius + BODY.r * (this.charOf(t).sizeScale - 1);   // bigger animals get splashed more
-        if (d < r) damages.push({ idx: 1 - idx, amount: dmg(shot.splashMax * (1 - d / r)), type: 'splash', element });
+        this.players.forEach((t, i) => {
+          if (i === idx || t.hp <= 0) return;
+          const d = Math.abs(x - (t.x + BODY.dx * t.facing));
+          const r = shot.splashRadius + BODY.r * (this.charOf(t).sizeScale - 1);   // bigger animals get splashed more
+          if (d < r) damages.push({ idx: i, amount: dmg(shot.splashMax * (1 - d / r)), type: 'splash', element });
+        });
         return done(damages.length ? 'splash' : 'ground', damages);
       }
 
@@ -379,9 +433,10 @@ export class Game {
    */
   blast(idx, x, y, { radius, max, min, self = false }, mult = 1) {
     const out = [];
-    for (let i = 0; i < 2; i++) {
+    for (let i = 0; i < this.players.length; i++) {
       if (i === idx && !self) continue;
       const t = this.players[i];
+      if (t.hp <= 0) continue;
       const bx = t.x + BODY.dx * t.facing;
       const by = GROUND_Y + BODY.dy;
       const d = Math.max(0, Math.hypot(x - bx, y - by) - BODY.r * this.charOf(t).sizeScale);
@@ -407,7 +462,7 @@ export class Game {
       d.amount = this.charOf(p).modifyIncoming(this, p, d);
       this.damage(d.idx, d.amount);
       d.inflicted = [];
-      if (d.idx === this.turn) continue;   // your own nuke doesn't stink you
+      if (d.idx === this.turn) continue;   // your own nuke doesn't stink you (friendly fire does)
       for (const { status, value, direct } of result.inflicts) {
         if (direct && d.type !== 'direct') continue;   // e.g. ICE CUBE only freezes on a direct hit
         let v = value;
@@ -420,8 +475,8 @@ export class Game {
         d.inflicted.push(status);
       }
     }
-    // Double knockout (e.g. a NUKE that also catches the thrower): the thrower loses.
-    if (this.players.every((pl) => pl.hp === 0)) this.winner = 1 - this.turn;
+    // Double knockout (e.g. a NUKE that wipes out both teams): the thrower's team loses.
+    if (!this.teamAlive(0) && !this.teamAlive(1)) this.winner = 1 - this.current.team;
   }
 }
 

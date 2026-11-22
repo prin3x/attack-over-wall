@@ -5,14 +5,15 @@ import { CHARACTERS } from '../core/characters/index.js';
 
 const OUTLINE = '#1c1220';
 const WHITE = '#ffffff';
-export const FRAMES = ['idle0', 'idle1', 'windup', 'throw', 'hurt', 'win'];
+export const FRAMES = ['idle0', 'idle1', 'windup', 'throw', 'hurt', 'win', 'dance0', 'dance1', 'dance2'];
 
 // ---------- characters (pixel art lives in core/characters/roster.js) ----------
 function characterArt(c) {
   const frames = Object.fromEntries(
     FRAMES.map((f) => {
       const p = new Pix(28, 24, 2, 0);
-      c.drawFrame(p, f);
+      if (f.startsWith('dance')) c.drawDance(p, Number(f.slice(5)));
+      else c.drawFrame(p, f);
       return [f, p.outline(OUTLINE).toCanvas()];
     }),
   );

@@ -2,7 +2,7 @@ import './style.css';
 import { Game } from './core/game.js';
 import { cpuChooseShot, cpuPickDraft, cpuPickItems } from './core/ai.js';
 import { ITEMS, STATUSES, COMBOS, combosCompletedBy } from './core/items/index.js';
-import { W, H, ANGLE_MIN, ANGLE_MAX, POWER_RATE, GROUND_Y } from './core/constants.js';
+import { W, H, ANGLE_MIN, ANGLE_MAX, POWER_RATE, GROUND_Y, TEAM_NAMES } from './core/constants.js';
 import { CHARACTERS, DEFAULT_CHARACTERS } from './core/characters/index.js';
 import { Renderer } from './render/renderer.js';
 import { Hud } from './ui/hud.js';
@@ -26,7 +26,14 @@ let flight = null;
 let cpu = null;
 let cpuSkill = 0;
 let lastPower = [null, null];
-const held = { up: 0, down: 0 };   // seconds each angle key has been held (0 = not held)
+// Who controls each animal: 'human' (this keyboard/mouse), 'cpu' (AI on this machine), 'remote' (online).
+let ctl = ['human', 'cpu'];
+let lastCtl = ctl;
+let teamSetup = ['human', 'cpu', 'cpu', 'cpu'];   // 2v2 local setup screen
+const held = { up: 0, down: 0 };
+let aimBase = 45;           // the angle the player is steering toward (DRUNK sways around it)
+let swayT = 0;
+let staggerT = 0;           // ZAPPED: time until the power bar's next jolt   // seconds each angle key has been held (0 = not held)
 
 // online
 let net = null;             // Online connection
@@ -38,21 +45,35 @@ const remoteQueue = [];     // opponent moves waiting to be played back
 let remoteDelay = 0;
 const aimSent = { t: 0, angle: null };
 let afterThrow = false;     // impact phase came from a throw (online: wait for the server's verdict)
+let roomSize = 2;           // online: 2 = 1v1 room, 4 = 2v2 room
+let bots = [];              // online 2v2: seats played by a CPU (empty seats, players who left)
+let host = 0;               // online 2v2: the seat whose browser runs the CPUs
+let seatInfo = null;        // online 2v2 lobby: { seats: [taken], you, host }
 
-const isCpuTurn = () => mode === 'cpu' && (game.turn === 1 || window.__demo === true);
-const isRemoteTurn = () => mode === 'online' && game && game.turn !== me;
-const sendMine = (msg) => { if (mode === 'online' && !isRemoteTurn()) net?.send(msg); };
+const isCpuTurn = () => !!game && (ctl[game.turn] === 'cpu' || (window.__demo === true && mode !== 'online'));
+const isRemoteTurn = () => !!game && ctl[game.turn] === 'remote';
+// Online: moves made on this machine (mine, or a CPU seat I host) go to the server, tagged with the seat.
+const sendMine = (msg) => { if (mode === 'online' && !isRemoteTurn()) net?.send({ ...msg, seat: game.turn }); };
+const teamMode = () => !!game && game.players.length > 2;
+const humans = () => ctl.filter((c) => c === 'human').length;
+/** The team "you" are on, if that's clear (online, or a single human at this PC). */
+const myTeam = () => (mode === 'online' ? me % 2 : humans() === 1 ? ctl.indexOf('human') % 2 : null);
+
+/** Online: who drives each seat on this machine. */
+function onlineCtl(n) {
+  return Array.from({ length: n }, (_, i) => (bots.includes(i) ? (me === host ? 'cpu' : 'remote') : i === me ? 'human' : 'remote'));
+}
 let lastChars = DEFAULT_CHARACTERS;   // characters of the current/last match (rematch keeps them)
 let picks = [];                       // character select in progress
 
 /** Character name for side i; mirror matches add P1/P2. */
 const charName = (i) => {
   const c = CHARACTERS[game.players[i].char];
-  return game.players[0].char === game.players[1].char ? `${c.name} P${i + 1}` : c.name;
+  return game.players.some((p, k) => k !== i && p.char === c.id) ? `${c.name} P${i + 1}` : c.name;
 };
 const nameOf = (i) => {
-  if (mode === 'cpu' && i === 1) return `${charName(1)} (CPU)`;
-  if (mode === 'online' && i === me) return `${charName(i)} (YOU)`;
+  if (mode === 'online' && i === me && ctl[i] === 'human') return `${charName(i)} (YOU)`;
+  if (ctl[i] === 'cpu' || (mode === 'online' && bots.includes(i))) return `${charName(i)} (CPU)`;
   return charName(i);
 };
 
@@ -68,20 +89,22 @@ addEventListener('resize', fit);
 fit();
 
 // ---------- flow ----------
-function startMatch(m, seed, resumeAt = 1, chars = lastChars) {
+function startMatch(m, seed, resumeAt = 1, chars = lastChars, controllers = null) {
   stopGloating();
   mode = m;
   lastChars = chars;
   game = new Game(seed, chars);
+  ctl = controllers || (m === 'online' ? onlineCtl(chars.length) : m === 'cpu' ? ['human', 'cpu'] : chars.map(() => 'human'));
+  lastCtl = ctl;
   renderer.setCharacters(chars);
   cpuSkill = 0;
   turnNo = resumeAt - 1;
   remoteQueue.length = 0;
   hud.setRematchVisible(true);
-  lastPower = [null, null];
+  lastPower = chars.map(() => null);
   renderer.reset();
   hud.show(null);
-  hud.showHud([nameOf(0), nameOf(1)], game.players.map((p) => p.maxHp));
+  hud.showHud(chars.map((_, i) => nameOf(i)), game.players.map((p) => p.maxHp));
   beginTurn();
 }
 
@@ -96,8 +119,8 @@ function toMenu() {
   hud.hideHud();
   hud.hideBanner();
   hud.setActiveItem('');
-  renderer.setStatus(0, []);
-  renderer.setStatus(1, []);
+  for (let i = 0; i < 4; i++) renderer.setStatus(i, []);
+  renderer.setTurnArrow(null);
   renderer.setHazards([]);
   hud.show('menu');
 }
@@ -107,6 +130,7 @@ function refreshItems() {
   if (!game) return;
   renderer.setHazards(game.hazards);
   hud.renderBags(game, phase === 'aim' && !charging && !isCpuTurn());
+  hud.setActive(['over', 'menu'].includes(phase) ? null : game.turn, game.players);
   game.players.forEach((p, i) => {
     hud.setStatus(i, p);
     const visuals = Object.keys(p.status).map((id) => STATUSES[id].visual).filter(Boolean);
@@ -138,7 +162,7 @@ function startDraft() {
     const c = combosCompletedBy(id, p.items)[0];
     return c ? `MAKES ${c.name}` : '';
   });
-  hud.showDraft(game.draft, mode === 'local' ? `${charName(t)}: PICK AN ITEM` : 'PICK AN ITEM', hints);
+  hud.showDraft(game.draft, mode !== 'online' && humans() > 1 ? `${charName(t)}: PICK AN ITEM` : 'PICK AN ITEM', hints);
   sfx.turn();
 }
 
@@ -164,9 +188,20 @@ function enterPlay() {
     hud.setActiveItem('');
   } else {
     phase = 'aim';
+    aimBase = game.current.angle;
+    swayT = Math.random() * 10;
   }
   drawAim();
   refreshItems();
+}
+
+/** Aim = where you steer + DRUNK sway (the angle keeps drifting by itself, even while charging). */
+function applySway() {
+  const p = game.current;
+  const amp = game.aimSway(p);
+  const a = amp ? aimBase + amp * (0.7 * Math.sin(swayT * 2.1) + 0.3 * Math.sin(swayT * 5.3)) : aimBase;
+  p.angle = Math.max(ANGLE_MIN, Math.min(ANGLE_MAX, a));
+  hud.setAngle(p.angle);
 }
 
 function useItem(slot) {
@@ -223,8 +258,10 @@ function beginTurn() {
   hud.setAngle(game.current.angle);
   hud.setPower(0, lastPower[t]);
   hud.setControlsVisible(!isCpuTurn() && !isRemoteTurn());
-  const mine = (mode === 'cpu' && t === 0) || (mode === 'online' && t === me);
+  const mine = ctl[t] === 'human' && (mode === 'online' || humans() === 1);
   hud.showBanner(mine ? 'YOUR TURN!' : `${charName(t)}'S TURN`);
+  renderer.setTurnArrow(teamMode() ? t : null);
+  syncKO();
   hud.setActiveItem('');
   sfx.turn();
 
@@ -235,7 +272,7 @@ function beginTurn() {
     const y = GROUND_Y + 34 + k * 10;
     if (fx.damage) {
       hud.setHp(t, p.hp);
-      renderer.hurt(t);
+      if (p.hp > 0 || !teamMode()) renderer.hurt(t);
       hud.popup(p.x, y, `-${fx.damage} ${fx.text || ''}`.trim(), fx.cls || 'dmg');
     } else if (fx.text) {
       hud.popup(p.x, y, fx.text, fx.cls || 'item');
@@ -250,15 +287,40 @@ function beginTurn() {
   if (ev.skipped) {
     phase = 'skipped';
     timer = 1.6;
-    hud.showBanner(`${charName(t)} IS FROZEN!`);
     hud.setControlsVisible(false);
+    if (p.hp === 0) {
+      // 2v2: knocked out by stink/fire at the start of the turn; the teammate fights on.
+      hud.showBanner(`${charName(t)} IS DOWN!`);
+      syncKO();
+      return;
+    }
+    hud.showBanner(`${charName(t)} IS FROZEN!`);
     renderer.shatter(t);
     hud.popup(p.x, GROUND_Y + 54, 'TURN SKIPPED!', 'combo');
   }
 }
 
+/** 2v2: animals at 0 HP fall over and stay down (the match goes on). */
+function syncKO() {
+  if (!teamMode()) return;
+  game.players.forEach((p, i) => {
+    if (p.hp > 0 || renderer.players[i].ko) return;
+    renderer.ko(i);
+    hud.popup(p.x, GROUND_Y + 48, 'K.O.!', 'crit');
+  });
+  refreshItems();
+}
+
 // ---------- game over: the winner won't stop gloating ----------
-const LOSER_LINES = ['NOT FAIR...', 'REMATCH!!', 'LAG!!', 'MY PAW SLIPPED', '...', 'I LET YOU WIN'];
+const LOSER_LINES = ['NOT FAIR...', 'REMATCH!!', 'LAG!!', 'MY PAW SLIPPED', '...', 'I LET YOU WIN', 'OW! OW! OW!', 'NOT THE FACE!', 'MOMMY...'];
+const SLAP_WORDS = ['SLAP!', 'SMACK!', 'WHAP!', 'THWACK!'];
+
+// Victory: every slap the renderer lands gets a sound and a word.
+renderer.onSlap = (i, x) => {
+  if (phase !== 'over') return;
+  sfx.slap();
+  hud.popup(x, GROUND_Y + 30 + Math.random() * 10, SLAP_WORDS[Math.floor(Math.random() * SLAP_WORDS.length)], 'crit');
+};
 let gloatTimer = null;
 
 function stopGloating() {
@@ -266,25 +328,30 @@ function stopGloating() {
   gloatTimer = null;
 }
 
-/** Winner cycles smug victory lines (shuffled); the loser mumbles back now and then. */
+/** Winning team cycles smug victory lines (shuffled); the losers mumble back now and then. */
 function startGloating(w) {
   stopGloating();
-  const winner = game.players[w];
-  const loser = game.players[1 - w];
-  const lines = [...CHARACTERS[winner.char].victory].sort(() => Math.random() - 0.5);
+  // (bubbles follow where the animals are drawn: winners walk over to slap the losers)
+  const at = (p) => ({ x: renderer.drawnX(game.players.indexOf(p)), p });
+  const winners = game.players.filter((p) => p.team === w && p.hp > 0);
+  if (!winners.length) winners.push(...game.players.filter((p) => p.team === w));
+  const losers = game.players.filter((p) => p.team !== w);
   let k = 0;
   const next = () => {
     if (phase !== 'over') return;
     if (k % 3 === 2) {
-      hud.bubble(loser.x, GROUND_Y + 30, LOSER_LINES[Math.floor(Math.random() * LOSER_LINES.length)]);
+      const loser = losers[Math.floor(k / 3) % losers.length];
+      hud.bubble(at(loser).x, GROUND_Y + 30, LOSER_LINES[Math.floor(Math.random() * LOSER_LINES.length)]);
     } else {
-      hud.bubble(winner.x, GROUND_Y + 28, lines[k % lines.length]);
+      const winner = winners[k % winners.length];
+      const lines = CHARACTERS[winner.char].victory;
+      hud.bubble(at(winner).x, GROUND_Y + 28, lines[Math.floor(Math.random() * lines.length)]);
       sfx.taunt();
     }
     k++;
     gloatTimer = setTimeout(next, 1900);
   };
-  gloatTimer = setTimeout(next, 600);
+  gloatTimer = setTimeout(next, 1700);   // after the winners land next to the losers
 }
 
 /** Character i dances and says something rude (a random line from its Character.taunts). */
@@ -318,7 +385,7 @@ function showPassiveEvents() {
       if (ev.id === 'shatter') renderer.shatter(ev.idx);
       if (ev.id === 'shocked') { renderer.lightning(ev.idx); renderer.burst(p.x, GROUND_Y + 12, ['#8fd8ff', '#ffffff'], 20, 60); hud.flash(); }
       if (ev.id === 'gas') { renderer.explode(p.x, GROUND_Y + 10, 'small'); renderer.burst(p.x, GROUND_Y + 10, ['#7fd35a', '#ff6a2a', '#ffd84a'], 24, 90); }
-      if (ev.id === 'fizzle') { renderer.steam(p.x); sfx.sizzle(); }
+      if (ev.id === 'flambe') { renderer.burst(p.x, GROUND_Y + 8, ['#ff6a2a', '#ffd84a', '#7a1f45', '#e04848'], 30, 90, -60); renderer.addShake(4); sfx.sizzle(); }
       if (ev.id === 'deepfreeze') renderer.burst(p.x, GROUND_Y + 14, ['#bfe9ff', '#ffffff'], 16, 40, -30);
     } else if (ev.type === 'doused') {
       renderer.steam(ev.x);
@@ -336,8 +403,7 @@ function applyServerState() {
   if (!s) return;
   turnStates.delete(turnNo);
   game.applySnapshot(s);
-  hud.setHp(0, game.players[0].hp);
-  hud.setHp(1, game.players[1].hp);
+  game.players.forEach((p, i) => hud.setHp(i, p.hp));
   renderer.setWind(game.wind);
   hud.setWind(game.wind);
   hud.setAngle(game.current.angle);
@@ -394,9 +460,11 @@ function landEffect(r) {
       sfx.ground();
   }
   // Element landings: water splashes, lightning strikes from the sky.
-  if (r.element === 'water' && r.kind !== 'out') {
-    renderer.burst(r.x, Math.max(r.y, GROUND_Y + 2), ['#3a8be0', '#8fd8ff', '#ffffff'], 26, 90);
+  if (r.element === 'wine' && r.kind !== 'out') {
+    // glass breaks, wine everywhere
+    renderer.burst(r.x, Math.max(r.y, GROUND_Y + 2), ['#7a1f45', '#a8325e', '#5a1a3a', '#cfe8d8'], 26, 90);
     sfx.splash();
+    sfx.wall();
   }
   if (r.element === 'shock' && r.kind !== 'out') {
     renderer.boltAt(r.x, Math.max(r.y, GROUND_Y + 1));
@@ -417,9 +485,9 @@ function impact() {
   renderer.setLanding(game.turn, flights[Math.floor(flights.length / 2)].result.x);
   game.applyVolley(flights);
 
-  const total = [0, 0];
-  const blocked = [null, null];
-  const inflicted = [new Set(), new Set()];
+  const total = game.players.map(() => 0);
+  const blocked = game.players.map(() => null);
+  const inflicted = game.players.map(() => new Set());
   for (const { result } of flights) {
     for (const d of result.damages) {
       if (d.blockedBy) { blocked[d.idx] = d.blockedBy; continue; }
@@ -454,12 +522,16 @@ function impact() {
       lifted = true;
     }
   }
-  if (total[game.turn] > 0) hud.popup(game.current.x, GROUND_Y + 54, 'OOPS!', 'item');
-  // Trash talk: the hitter dances and mocks. Hurt yourself? The other side laughs instead.
-  const foe = 1 - game.turn;
-  if (total[foe] > 0) taunt(game.turn);
-  else if (total[game.turn] > 0) taunt(foe, 'HAHAHA!');
-  else if (blocked[foe]) taunt(foe, 'NOPE!');
+  const t = game.turn;
+  const team = game.current.team;
+  if (total[t] > 0) hud.popup(game.current.x, GROUND_Y + 54, 'OOPS!', 'item');
+  game.players.forEach((p, i) => { if (i !== t && p.team === team && total[i] > 0) hud.popup(p.x, GROUND_Y + 54, 'HEY!!', 'item'); });
+  // Trash talk: the hitter dances and mocks. Hurt yourself (or your teammate)? The other side laughs instead.
+  const foes = game.players.map((p, i) => i).filter((i) => game.players[i].team !== team);
+  const laugher = foes.filter((i) => game.players[i].hp > 0).sort(() => Math.random() - 0.5)[0];
+  if (foes.some((i) => total[i] > 0)) taunt(t);
+  else if (game.players.some((p, i) => p.team === team && total[i] > 0)) { if (laugher !== undefined) taunt(laugher, 'HAHAHA!'); }
+  else { const b = foes.find((i) => blocked[i]); if (b !== undefined) taunt(b, 'NOPE!'); }
   showPassiveEvents();
   refreshItems();
   phase = 'impact';
@@ -475,8 +547,7 @@ function afterImpact() {
     if (final && final.winner !== null) {
       turnStates.delete(turnNo);
       game.applySnapshot(final);
-      hud.setHp(0, game.players[0].hp);
-      hud.setHp(1, game.players[1].hp);
+      game.players.forEach((p, i) => hud.setHp(i, p.hp));
     } else if (next) {
       game.winner = null;
     } else {
@@ -490,12 +561,20 @@ function afterImpact() {
     hud.hideBanner();
     hud.setActiveItem('');
     renderer.setResult(w);
+    hud.setActive(null, game.players);
     startGloating(w);
     hud.setControlsVisible(false);
-    const wc = CHARACTERS[game.players[w].char];
-    if (mode === 'cpu') hud.setOverText(w === 0 ? 'YOU WIN!' : 'YOU LOSE', w === 0 ? `GOOD ${wc.animal}!` : `${charName(w)} RULES THE YARD`);
-    else if (mode === 'online') hud.setOverText(w === me ? 'YOU WIN!' : 'YOU LOSE', `${charName(w)} WINS!`);
-    else hud.setOverText(`${charName(w)} WINS!`, `${wc.animal} POWER!`);
+    if (teamMode()) {
+      const mt = myTeam();
+      const tn = `TEAM ${TEAM_NAMES[w]}`;
+      if (mt === null) hud.setOverText(`${tn} WINS!`, 'TEAMWORK!');
+      else hud.setOverText(mt === w ? 'YOUR TEAM WINS!' : 'YOUR TEAM LOSES', mt === w ? `${tn} RULES THE YARD` : `${tn} WINS!`);
+    } else {
+      const wc = CHARACTERS[game.players[w].char];
+      if (mode === 'cpu') hud.setOverText(w === 0 ? 'YOU WIN!' : 'YOU LOSE', w === 0 ? `GOOD ${wc.animal}!` : `${charName(w)} RULES THE YARD`);
+      else if (mode === 'online') hud.setOverText(w === me ? 'YOU WIN!' : 'YOU LOSE', `${charName(w)} WINS!`);
+      else hud.setOverText(`${charName(w)} WINS!`, `${wc.animal} POWER!`);
+    }
     hud.show('over');
     sfx.win();
     return;
@@ -539,17 +618,30 @@ function aimAtPointer(e) {
   let a = (Math.atan2(y - o.y, (x - o.x) * f) * 180) / Math.PI;
   if (a > 90) a = ANGLE_MAX;        // pointer behind & above -> steepest
   else if (a < -90) a = ANGLE_MIN;  // pointer behind & below -> flattest
-  const p = game.current;
-  const next = Math.max(ANGLE_MIN, Math.min(ANGLE_MAX, Math.round(a)));
-  if (next !== Math.round(p.angle)) {
-    p.angle = next;
-    hud.setAngle(next);
+  aimBase = Math.max(ANGLE_MIN, Math.min(ANGLE_MAX, Math.round(a)));
+  applySway();
+}
+
+/** Online: let the others watch the aim move (throttled). */
+function sendAim() {
+  if (mode !== 'online') return;
+  const now = performance.now();
+  const a = Math.round(game.current.angle);
+  if (now - aimSent.t > 120 && a !== aimSent.angle) {
+    sendMine({ t: 'aim', angle: a });
+    aimSent.t = now;
+    aimSent.angle = a;
   }
 }
 
 // ---------- per-frame update ----------
 function stepAngle(delta) {
   const p = game.current;
+  if (phase === 'aim') {
+    aimBase = Math.max(ANGLE_MIN, Math.min(ANGLE_MAX, aimBase + delta));
+    applySway();
+    return;
+  }
   p.angle = Math.max(ANGLE_MIN, Math.min(ANGLE_MAX, p.angle + delta));
   hud.setAngle(p.angle);
 }
@@ -573,29 +665,40 @@ function update(dt) {
         held[k] += dt;
         if (held[k] > 0.25) stepAngle(dir * 40 * (before > 0.25 ? dt : held[k] - 0.25));
       }
+      if (game.aimSway(game.current)) {
+        swayT += dt;
+        applySway();
+      }
       if (charging) {
-        power += powerDir * POWER_RATE * game.powerRate(game.current) * dt;
+        const zap = game.powerStagger(game.current);
+        staggerT -= dt;
+        if (zap && staggerT <= 0) {
+          // ZAPPED: the bar stalls, jolts up or down, sometimes flips direction.
+          staggerT = 0.07 + Math.random() * 0.16;
+          power += (Math.random() * 2 - 1) * 22 * zap;
+          if (Math.random() < 0.3) powerDir = -powerDir;
+          renderer.burst(game.current.x, GROUND_Y + 16, ['#ffd84a', '#8fd8ff'], 3, 30);
+        }
+        const stalled = zap && staggerT > 0.16;
+        if (!stalled) power += powerDir * POWER_RATE * game.powerRate(game.current) * dt;
         if (power >= 100) { power = 100; powerDir = -1; }
         if (power <= 0) { power = 0; powerDir = 1; }
         hud.setPower(power, lastPower[game.turn]);
       }
       drawAim();
-      // Online: let the opponent watch me aim (throttled).
-      if (mode === 'online') {
-        const now = performance.now();
-        const a = Math.round(game.current.angle);
-        if (now - aimSent.t > 120 && a !== aimSent.angle) {
-          net?.send({ t: 'aim', angle: a });
-          aimSent.t = now;
-          aimSent.angle = a;
-        }
-      }
+      sendAim();
       break;
     }
 
     case 'remoteWait':
     case 'remote':
       playRemote(dt);
+      // Online 2v2: this seat just became a CPU I run (player left / I'm the new host).
+      // Finish playing what already arrived, then take over from where they stopped.
+      if (isCpuTurn() && !remoteQueue.length && remoteDelay <= 0) {
+        if (phase === 'remoteWait') startDraft();
+        else enterPlay();
+      }
       break;
 
     case 'cpu': {
@@ -613,6 +716,11 @@ function update(dt) {
       if (cpu.stage === 'plan') {
         cpu.plan = cpuChooseShot(game, game.turn, cpuSkill++);
         if (game.powerRate(game.current) > 1) cpu.plan.power = Math.max(5, Math.min(100, cpu.plan.power + (Math.random() - 0.5) * 18));
+        // ZAPPED: the power ends up off by a jolt.
+        if (game.powerStagger(game.current)) cpu.plan.power = Math.max(5, Math.min(100, cpu.plan.power + (Math.random() * 2 - 1) * 16));
+        // DRUNK: the CPU's angle ends up wherever the sway left it.
+        const sway = game.aimSway(game.current);
+        if (sway) cpu.plan.angle = Math.max(ANGLE_MIN, Math.min(ANGLE_MAX, cpu.plan.angle + (Math.random() * 2 - 1) * sway));
         cpu.stage = 'aim';
       }
       const p = game.current;
@@ -620,9 +728,10 @@ function update(dt) {
       if (Math.abs(diff) > 0.5) {
         stepAngle(Math.sign(diff) * Math.min(Math.abs(diff), 45 * dt));
         drawAim();
+        sendAim();
       } else {
         p.angle = cpu.plan.angle;
-        if (!cpu.charging) { cpu.charging = true; renderer.windup(game.turn); }
+        if (!cpu.charging) { cpu.charging = true; renderer.windup(game.turn); sendMine({ t: 'charge' }); }
         power = Math.min(cpu.plan.power, power + POWER_RATE * dt);
         hud.setPower(power, lastPower[game.turn]);
         if (power >= cpu.plan.power) throwShot();
@@ -653,7 +762,7 @@ function update(dt) {
             sfx.whoosh?.();
           }
           if (q.lock) {
-            const foe = 1 - game.turn;
+            const foe = q.target ?? 1 - game.turn;
             renderer.lockOn(foe);
             hud.popup(game.players[foe].x, GROUND_Y + 44, 'LOCKED!', 'boom');
             sfx.lock();
@@ -707,29 +816,62 @@ const randomChar = () => {
   return ids[Math.floor(Math.random() * ids.length)];
 };
 
-/** Local / CPU: pick characters, then start. */
-function openSelect(m) {
+/** Local / CPU: pick characters, then start. `seats` = controller per animal ('human' picks, 'cpu' is random). */
+let selectSeats = ['human', 'human'];
+function openSelect(m, seats = m === 'cpu' ? ['human', 'cpu'] : ['human', 'human']) {
   mode = m;
   phase = 'select';
+  selectSeats = seats;
   picks = [];
-  hud.showSelect(m === 'local' ? 'P1: CHOOSE YOUR ANIMAL' : 'CHOOSE YOUR ANIMAL', renderer.charArt);
+  nextPick();
 }
+
+/** Ask the next human seat for an animal; CPU seats get a random one. Starts when all are picked. */
+function nextPick() {
+  while (picks.length < selectSeats.length && selectSeats[picks.length] === 'cpu') picks.push(randomChar());
+  if (picks.length === selectSeats.length) {
+    startMatch(mode, undefined, 1, picks, selectSeats);
+    return;
+  }
+  const i = picks.length;
+  const team = selectSeats.length > 2 ? ` (${TEAM_NAMES[i % 2]})` : '';
+  hud.showSelect(humans_(selectSeats) > 1 ? `P${i + 1}${team}: CHOOSE YOUR ANIMAL` : `CHOOSE YOUR ANIMAL${team}`, renderer.charArt);
+}
+const humans_ = (seats) => seats.filter((c) => c === 'human').length;
 
 function onCharPicked(id) {
   sfx.select();
   if (mode === 'online') {
     net?.send({ t: 'char', id });
-    hud.showSelect(`YOU PICKED ${CHARACTERS[id].name}`, renderer.charArt, { locked: true, msg: 'WAITING FOR FRIEND...' });
+    hud.showSelect(`YOU PICKED ${CHARACTERS[id].name}`, renderer.charArt, { locked: true, msg: roomSize > 2 ? 'WAITING FOR THE OTHERS...' : 'WAITING FOR FRIEND...' });
     return;
   }
   picks.push(id);
-  if (mode === 'local' && picks.length === 1) {
-    hud.showSelect('P2: CHOOSE YOUR ANIMAL', renderer.charArt);
-    return;
-  }
-  if (mode === 'cpu') picks.push(randomChar());
-  startMatch(mode, undefined, 1, picks);
+  nextPick();
 }
+
+// ---------- 2v2 setup (same PC): each seat is a player or a CPU ----------
+function openTeamSetup() {
+  mode = 'local';
+  phase = 'teams';
+  renderTeamSetup();
+}
+
+function renderTeamSetup() {
+  hud.showTeams({
+    title: '2V2 TEAMS',
+    seats: teamSetup.map((c) => ({ label: c === 'human' ? 'PLAYER' : 'CPU', cls: c === 'human' ? 'you' : 'cpu', click: true })),
+    canStart: teamSetup.includes('human'),
+    msg: 'CLICK A SEAT: PLAYER OR CPU',
+  });
+}
+
+hud.onSeat = (i) => {
+  sfx.select();
+  if (mode === 'online') { net?.send({ t: 'seat', seat: i }); return; }
+  teamSetup[i] = teamSetup[i] === 'human' ? 'cpu' : 'human';
+  renderTeamSetup();
+};
 hud.onSelect = onCharPicked;
 
 // ---------- online ----------
@@ -773,24 +915,55 @@ function onNet(msg) {
       hud.showLobby('room', roomCode);
       hud.setLobbyMsg('WAITING FOR A FRIEND...');
       break;
-    case 'select':
+    case 'room':
+      // 2v2 lobby: pick a seat, the host presses START (empty seats become CPUs).
+      me = msg.you;
+      mode = 'online';
+      roomSize = 4;
+      phase = 'lobby';
+      seatInfo = msg;
+      renderTeamLobby();
+      break;
+    case 'select': {
       me = msg.you;
       mode = 'online';
       phase = 'select';
-      if (msg.picked) hud.showSelect(`YOU PICKED ${CHARACTERS[msg.picked].name}`, renderer.charArt, { locked: true, msg: 'WAITING FOR FRIEND...' });
-      else hud.showSelect('CHOOSE YOUR ANIMAL', renderer.charArt, { msg: 'YOUR FRIEND IS CHOOSING TOO' });
+      if (msg.size) roomSize = msg.size;
+      const team = roomSize > 2 ? ` (${TEAM_NAMES[me % 2]})` : '';
+      const wait = roomSize > 2 ? 'WAITING FOR THE OTHERS...' : 'WAITING FOR FRIEND...';
+      if (msg.picked) hud.showSelect(`YOU PICKED ${CHARACTERS[msg.picked].name}`, renderer.charArt, { locked: true, msg: wait });
+      else hud.showSelect(`CHOOSE YOUR ANIMAL${team}`, renderer.charArt, { msg: roomSize > 2 ? 'EVERYONE IS CHOOSING' : 'YOUR FRIEND IS CHOOSING TOO' });
       break;
+    }
     case 'picked':
       if (phase === 'select') hud.setLobbyMsg?.('');
-      document.getElementById('selectMsg').textContent = 'FRIEND IS READY!';
+      document.getElementById('selectMsg').textContent = roomSize > 2 ? 'SOMEONE IS READY!' : 'FRIEND IS READY!';
       break;
     case 'start':
       me = msg.you;
+      bots = msg.bots || [];
+      host = msg.host ?? 0;
+      roomSize = (msg.chars || DEFAULT_CHARACTERS).length;
       turnStates.clear();
       turnStates.set(msg.n, msg.state);
       sfx.select();
       startMatch('online', msg.seed, msg.n, msg.chars || DEFAULT_CHARACTERS);
       break;
+    case 'seats': {
+      // 2v2: a player left (a CPU takes their animal) or came back; maybe a new host runs the CPUs.
+      bots = msg.bots;
+      host = msg.host;
+      if (!game || mode !== 'online') break;
+      ctl = onlineCtl(game.players.length);
+      game.players.forEach((_, i) => hud.setName(i, nameOf(i)));
+      const who = msg.left ?? msg.back;
+      if (who !== undefined && who !== me && phase !== 'select') {
+        const p = game.players[who];
+        hud.popup(Math.max(60, Math.min(W - 60, p.x)), GROUND_Y + 60, msg.left !== undefined ? `P${who + 1} LEFT - CPU PLAYS` : `P${who + 1} IS BACK!`, 'item');
+      }
+      if (!isCpuTurn() && !isRemoteTurn() && phase === 'banner') hud.setControlsVisible(true);
+      break;
+    }
     case 'turn':
       turnStates.set(msg.n, msg.state);
       if (msg.n === turnNo && ['banner', 'draft', 'remoteWait'].includes(phase)) applyServerState();
@@ -808,7 +981,7 @@ function onNet(msg) {
       if (msg.n === turnNo) applyServerState();
       break;
     case 'rematch':
-      if (phase === 'over') hud.setOverText(document.getElementById('overTitle').textContent, 'FRIEND WANTS A REMATCH!');
+      if (phase === 'over') hud.setOverText(document.getElementById('overTitle').textContent, roomSize > 2 ? 'SOMEONE WANTS A REMATCH!' : 'FRIEND WANTS A REMATCH!');
       break;
     case 'left':
       if (phase === 'menu' || phase === 'lobby') break;
@@ -844,6 +1017,8 @@ async function joinRoom(code) {
   if (code.length < 4) { hud.setLobbyMsg('ENTER A ROOM CODE'); return; }
   if (net) net.close();
   roomCode = code;
+  roomSize = 2;
+  bots = [];
   hud.setLobbyMsg('CONNECTING...');
   net = new Online();
   net.onMessage = onNet;
@@ -858,10 +1033,30 @@ async function joinRoom(code) {
   }
 }
 
-async function createRoom() {
+/** Online 2v2 lobby screen from the server's seat list. */
+function renderTeamLobby() {
+  const { seats, you, host: h } = seatInfo;
+  const count = seats.filter(Boolean).length;
+  hud.showTeams({
+    title: 'ONLINE 2V2',
+    code: `ROOM ${roomCode}`,
+    seats: seats.map((taken, i) => ({
+      label: i === you ? 'YOU' : taken ? 'PLAYER' : 'OPEN (CPU)',
+      cls: i === you ? 'you' : taken ? '' : 'cpu',
+      click: !taken,
+    })),
+    start: you === h ? 'START' : '',
+    canStart: count >= 2,
+    msg: you === h
+      ? (count >= 2 ? 'START WHEN READY - OPEN SEATS = CPU' : 'SEND THE CODE TO FRIENDS')
+      : 'CLICK AN OPEN SEAT TO MOVE. HOST STARTS',
+  });
+}
+
+async function createRoom(size = 2) {
   hud.setLobbyMsg('CREATING ROOM...');
   try {
-    await joinRoom(await Online.createRoom());
+    await joinRoom(await Online.createRoom(size));
   } catch {
     hud.setLobbyMsg('SERVER OFFLINE - TRY AGAIN');
   }
@@ -924,7 +1119,8 @@ addEventListener('keydown', (e) => {
     if (k === 'Escape') leaveLobby();
     return;
   }
-  if (phase === 'menu' || phase === 'over' || phase === 'lobby') {
+  if (phase === 'teams' && k === 'Escape') { leaveLobby(); return; }
+  if (phase === 'menu' || phase === 'over' || phase === 'lobby' || phase === 'teams') {
     if (e.repeat) return;
     if (k === 'ArrowUp' || k === 'w' || k === 'W') { hud.navigate(-1); sfx.move(); }
     if (k === 'ArrowDown' || k === 's' || k === 'S') { hud.navigate(1); sfx.move(); }
@@ -987,6 +1183,7 @@ document.querySelectorAll('#menu button[data-mode]').forEach((b) =>
     sfx.unlock();
     sfx.select();
     if (b.dataset.mode === 'online') openLobby();
+    else if (b.dataset.mode === 'teams') openTeamSetup();
     else openSelect(b.dataset.mode);
   }),
 );
@@ -994,9 +1191,9 @@ document.getElementById('rematch').addEventListener('click', () => {
   sfx.select();
   if (mode === 'online') {
     net?.send({ t: 'rematch' });
-    hud.setOverText(document.getElementById('overTitle').textContent, 'WAITING FOR FRIEND...');
+    hud.setOverText(document.getElementById('overTitle').textContent, roomSize > 2 ? 'WAITING FOR THE OTHERS...' : 'WAITING FOR FRIEND...');
   } else {
-    startMatch(mode, undefined, 1, lastChars);
+    startMatch(mode, undefined, 1, lastChars, lastCtl);
   }
 });
 document.getElementById('toMenu').addEventListener('click', () => { sfx.select(); leaveLobby(); });
@@ -1007,7 +1204,14 @@ document.getElementById('closeBook').addEventListener('click', () => { sfx.selec
 
 // Online lobby buttons.
 const $id = (id) => document.getElementById(id);
-$id('createRoom').addEventListener('click', () => { sfx.select(); createRoom(); });
+$id('createRoom').addEventListener('click', () => { sfx.select(); createRoom(2); });
+$id('createTeamRoom').addEventListener('click', () => { sfx.select(); createRoom(4); });
+$id('teamsStart').addEventListener('click', () => {
+  sfx.select();
+  if (mode === 'online') net?.send({ t: 'go' });
+  else openSelect('local', [...teamSetup]);
+});
+$id('teamsBack').addEventListener('click', () => { sfx.select(); leaveLobby(); });
 $id('joinRoom').addEventListener('click', () => { sfx.select(); joinRoom($id('joinCode').value); });
 $id('lobbyBack').addEventListener('click', () => { sfx.select(); leaveLobby(); });
 $id('lobbyCancel').addEventListener('click', () => { sfx.select(); leaveLobby(); });
@@ -1021,6 +1225,10 @@ $id('copyLink').addEventListener('click', async () => {
   }
 });
 $id('joinCode').addEventListener('input', (e) => { e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); });
+
+// Browsers only allow audio after a user gesture: start the music on the first click/key.
+addEventListener('pointerdown', () => sfx.unlock(), { once: true });
+addEventListener('keydown', () => sfx.unlock(), { once: true });
 
 // ---------- main loop ----------
 hud.show('menu');
@@ -1048,6 +1256,7 @@ if (import.meta.env.DEV) {
   const auto = new URLSearchParams(location.search).get('auto');
   if (new URLSearchParams(location.search).has('demo')) window.__demo = true;
   const chars = new URLSearchParams(location.search).get('chars')?.split(',').filter((c) => CHARACTERS[c]);
-  if (auto === 'cpu' || auto === 'local') startMatch(auto, undefined, 1, chars?.length === 2 ? chars : DEFAULT_CHARACTERS);
+  const seats = new URLSearchParams(location.search).get('seats')?.split(',');   // e.g. human,cpu,cpu,cpu
+  if (auto === 'cpu' || auto === 'local') startMatch(auto, undefined, 1, chars?.length === 2 || chars?.length === 4 ? chars : DEFAULT_CHARACTERS, seats?.length === chars?.length ? seats : null);
   window.__debug = { renderer, get game() { return game; }, get phase() { return phase; }, get me() { return me; }, get turnNo() { return turnNo; }, throw: (pw) => throwShot(pw), useItem: (s) => useItem(s), redraft: (offers, bag) => { game.current.items = bag; game.draft = offers; hud.hideBanner(); startDraft(); } };
 }

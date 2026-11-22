@@ -4,12 +4,24 @@ import { CHARACTERS } from '../core/characters/index.js';
 
 const $ = (id) => document.getElementById(id);
 
+/** Whose bag a side of the screen shows: the current player, or that team's next one up. */
+function bagOwner(game, side) {
+  if (game.current.team === side) return game.turn;
+  const n = game.players.length;
+  for (let k = 1; k <= n; k++) {
+    const i = (game.lastOf[side] + k) % n;
+    if (game.players[i].team === side && game.players[i].hp > 0) return i;
+  }
+  return side;
+}
+
 export class Hud {
   constructor() {
     this.hud = $('hud');
     this.banner = $('banner');
     this.popups = $('popups');
-    this.screens = { menu: $('menu'), over: $('over'), draft: $('draft'), online: $('online'), book: $('book'), select: $('select') };
+    this.screens = { menu: $('menu'), over: $('over'), draft: $('draft'), online: $('online'), book: $('book'), select: $('select'), teams: $('teams') };
+    this.onSeat = () => {};
     this.onSelect = () => {};
     this.iconUrls = {};
     this.activeText = '';
@@ -42,16 +54,58 @@ export class Hud {
     this.buttons().forEach((b, i) => b.classList.toggle('sel', i === this.sel));
   }
 
+  /** HP panels: 2 (1v1) or 4 compact ones (2v2: team 0 on the left, team 1 on the right). */
   showHud(names, maxHps) {
     this.hud.classList.remove('hidden');
+    const teams = names.length > 2;
+    this.hud.classList.toggle('teams', teams);
     this.maxHp = maxHps;
-    $('name0').textContent = names[0];
-    $('name1').textContent = names[1];
-    this.setHp(0, maxHps[0]);
-    this.setHp(1, maxHps[1]);
+    // Extra panels for players 3 and 4 (created once, hidden in 1v1).
+    for (const i of [2, 3]) {
+      if (!$(`panel${i}`)) {
+        const side = i % 2 ? 'right' : 'left';
+        const el = document.createElement('div');
+        el.id = `panel${i}`;
+        el.className = `hp ${side} row2`;
+        el.innerHTML = side === 'left'
+          ? `<div class="label"><span id="name${i}"></span> <span id="hpv${i}" class="num"></span></div><div class="bar"><div id="hp${i}" class="fill ok"></div></div>`
+          : `<div class="label"><span id="hpv${i}" class="num"></span> <span id="name${i}"></span></div><div class="bar"><div id="hp${i}" class="fill ok"></div></div>`;
+        $('panel1').after(el);
+        const st = document.createElement('div');
+        st.id = `status${i}`;
+        st.className = `status ${side}`;
+        $('status1').after(st);
+      }
+      $(`panel${i}`).classList.toggle('hidden', !teams);
+      $(`status${i}`).classList.toggle('hidden', !teams);
+    }
+    // 2v2: statuses sit on the name line instead of under the bar.
+    for (let i = 0; i < 4; i++) {
+      const st = $(`status${i}`);
+      const label = $(`panel${i}`).querySelector('.label');
+      if (teams && st.parentElement !== label) label.append(st);
+      if (!teams && st.parentElement === label) this.hud.insertBefore(st, $('bag0'));
+    }
+    names.forEach((n, i) => {
+      $(`name${i}`).textContent = n;
+      this.setHp(i, maxHps[i]);
+    });
+    this.setActive(null);
+  }
+
+  /** Highlight whose turn it is; grey out knocked-out animals (2v2). */
+  setActive(turn, players = []) {
+    for (let i = 0; i < 4; i++) {
+      const el = $(`panel${i}`);
+      if (!el) continue;
+      el.classList.toggle('active', i === turn);
+      el.classList.toggle('ko', players[i]?.hp === 0 && players.length > 2);
+    }
   }
 
   hideHud() { this.hud.classList.add('hidden'); }
+
+  setName(i, name) { const el = $(`name${i}`); if (el) el.textContent = name; }
 
   setHp(i, hp) {
     const fill = $(`hp${i}`);
@@ -137,10 +191,14 @@ export class Hud {
     this.show('draft');
   }
 
-  /** Both bags; only the current player's usable slots are enabled. */
+  /**
+   * One bag per side; only the current player's usable slots are enabled.
+   * 2v2: each side shows the bag of whoever plays (or plays next) for that team.
+   */
   renderBags(game, interactive) {
-    for (let i = 0; i < 2; i++) {
-      const bag = $(`bag${i}`);
+    for (let side = 0; side < 2; side++) {
+      const bag = $(`bag${side}`);
+      const i = bagOwner(game, side);
       bag.innerHTML = '';
       const items = game.players[i].items;
       for (let s = 0; s < BAG_SIZE; s++) {
@@ -323,6 +381,39 @@ export class Hud {
   }
 
   setLobbyMsg(text) { $('lobbyMsg').textContent = text; }
+
+  /**
+   * 2v2 seat grid (local setup and online team lobby). seats[i] = { label, sub, cls, click }.
+   * Team = seat % 2: seats 0 and 2 on the left (ORANGE), 1 and 3 on the right (BLUE).
+   */
+  showTeams({ title, code = '', seats, start = 'START', canStart = true, msg = '' }) {
+    $('teamsTitle').textContent = title;
+    $('teamsCode').textContent = code;
+    $('teamsCode').classList.toggle('hidden', !code);
+    for (const side of [0, 1]) {
+      const col = $(`seatCol${side}`);
+      col.innerHTML = '';
+      for (const i of [side, side + 2]) {
+        const s = seats[i];
+        const b = document.createElement('button');
+        b.className = `seat ${s.cls || ''}`;
+        b.innerHTML = `<span class="p">P${i + 1}</span> <span class="who"></span>`;
+        b.querySelector('.who').textContent = s.label;
+        b.disabled = !s.click;
+        b.addEventListener('click', () => this.onSeat(i));
+        col.append(b);
+      }
+    }
+    const st = $('teamsStart');
+    st.textContent = start;
+    st.disabled = !canStart;
+    st.classList.toggle('hidden', !start);
+    $('teamsMsg').textContent = msg;
+    const keep = this.activeScreen === this.screens.teams ? this.sel : 0;
+    this.show('teams');
+    this.sel = Math.min(keep, this.buttons().length - 1);
+    this.highlight();
+  }
 
   setRematchVisible(v) { $('rematch').classList.toggle('hidden', !v); this.sel = 0; this.highlight(); }
 
