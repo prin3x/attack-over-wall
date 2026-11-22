@@ -425,3 +425,5 @@ img { image-rendering: pixelated; }
 #menu .sub { margin: 0 0 2px; font-size: 7px; }
 #menu button { padding: 2px 6px; }
 #menu .hint { margin-top: 3px; }
+#menu #aimMode { width: auto; font-size: 5px; padding: 2px 5px; margin-top: 1px; color: #8fd8ff; }
+#menu #aimMode.sel, #menu #aimMode:hover { color: var(--ink); }

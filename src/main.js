@@ -639,7 +639,12 @@ function sendAim() {
  * Touch: slingshot aiming (like Angry Birds). Put a finger down anywhere, pull back:
  * the throw goes the opposite way of the pull, so the finger never covers the shot.
  */
-let sling = null;   // where the finger went down (world coords) while aiming by touch
+let sling = null;   // where the finger/mouse went down (world coords) while slingshot-aiming
+
+// Aim style: 'sling' (pull back, default everywhere) or 'point' (GunBound: angle follows the mouse).
+let aimMode = 'sling';
+try { if (localStorage.getItem('aimMode') === 'point') aimMode = 'point'; } catch { /* no storage */ }
+const pointAim = (e) => aimMode === 'point' && e.pointerType === 'mouse';
 
 function slingAim(e) {
   if (phase !== 'aim' || !sling) return;
@@ -1176,12 +1181,12 @@ addEventListener('keyup', (e) => {
 // Mouse: GunBound style, the angle follows the pointer. Touch/pen: slingshot (pull back to aim).
 stage.addEventListener('pointermove', (e) => {
   if (e.target.closest('button')) return;
-  if (e.pointerType === 'mouse') aimAtPointer(e);
+  if (pointAim(e)) aimAtPointer(e);
   else slingAim(e);
 });
 stage.addEventListener('pointerdown', (e) => {
   if (e.target.closest('button')) return;
-  if (e.pointerType === 'mouse') {
+  if (pointAim(e)) {
     aimAtPointer(e);
   } else if (phase === 'aim') {
     sling = pointerToWorld(e);
@@ -1261,10 +1266,23 @@ $id('copyLink').addEventListener('click', async () => {
 });
 $id('joinCode').addEventListener('input', (e) => { e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); });
 
-// Phones/tablets: explain the slingshot instead of mouse + keys.
-if (matchMedia('(pointer: coarse)').matches) {
-  document.getElementById('menuHint').innerHTML = 'TOUCH, HOLD + PULL BACK TO AIM<br />LET GO TO THROW<br />TAP ITEMS IN YOUR BAG TO USE THEM';
+// Menu: aim style switch + the matching how-to hint.
+function renderAimMode() {
+  const touch = matchMedia('(pointer: coarse)').matches;
+  document.getElementById('aimMode').textContent = aimMode === 'point' ? 'AIM: POINT' : 'AIM: SLINGSHOT';
+  document.getElementById('menuHint').innerHTML = touch
+    ? 'TOUCH, HOLD + PULL BACK TO AIM<br />LET GO TO THROW<br />TAP ITEMS IN YOUR BAG TO USE THEM'
+    : aimMode === 'point'
+      ? 'MOUSE OR UP/DOWN TO AIM<br />HOLD CLICK OR SPACE TO THROW<br />PICK ITEMS - USE WITH 1-4'
+      : 'HOLD CLICK + PULL BACK TO AIM, LET GO TO THROW<br />OR UP/DOWN + SPACE<br />PICK ITEMS - USE WITH 1-4';
 }
+document.getElementById('aimMode').addEventListener('click', () => {
+  sfx.select();
+  aimMode = aimMode === 'point' ? 'sling' : 'point';
+  try { localStorage.setItem('aimMode', aimMode); } catch { /* no storage */ }
+  renderAimMode();
+});
+renderAimMode();
 
 // Browsers only allow audio after a user gesture: start the music on the first click/key.
 addEventListener('pointerdown', () => sfx.unlock(), { once: true });
