@@ -599,6 +599,7 @@ function drawAim() {
 }
 
 function hideAim() {
+  endSling();
   renderer.hideAim();
   renderer.showLanding(null);
   hud.hideAimLabel();
@@ -632,6 +633,31 @@ function sendAim() {
     aimSent.t = now;
     aimSent.angle = a;
   }
+}
+
+/**
+ * Touch: slingshot aiming (like Angry Birds). Put a finger down anywhere, pull back:
+ * the throw goes the opposite way of the pull, so the finger never covers the shot.
+ */
+let sling = null;   // where the finger went down (world coords) while aiming by touch
+
+function slingAim(e) {
+  if (phase !== 'aim' || !sling) return;
+  const f = pointerToWorld(e);
+  renderer.showPull(sling, f);
+  const dx = sling.x - f.x;
+  const dy = sling.y - f.y;
+  if (Math.hypot(dx, dy) < 4) return;   // tiny wiggle: keep the current angle
+  let a = (Math.atan2(dy, dx * game.current.facing) * 180) / Math.PI;
+  if (a > 90) a = ANGLE_MAX;
+  else if (a < -90) a = ANGLE_MIN;
+  aimBase = Math.max(ANGLE_MIN, Math.min(ANGLE_MAX, Math.round(a)));
+  applySway();
+}
+
+function endSling() {
+  sling = null;
+  renderer.showPull(null);
 }
 
 // ---------- per-frame update ----------
@@ -1087,6 +1113,7 @@ function startCharge() {
 }
 
 function releaseCharge() {
+  endSling();
   if (phase === 'aim' && charging) throwShot();
 }
 
@@ -1146,15 +1173,23 @@ addEventListener('keyup', (e) => {
 
 // Mouse / touch: move to aim, press & hold on the field to charge, release to throw.
 // Dragging while charging keeps adjusting the angle.
+// Mouse: GunBound style, the angle follows the pointer. Touch/pen: slingshot (pull back to aim).
 stage.addEventListener('pointermove', (e) => {
   if (e.target.closest('button')) return;
-  aimAtPointer(e);
+  if (e.pointerType === 'mouse') aimAtPointer(e);
+  else slingAim(e);
 });
 stage.addEventListener('pointerdown', (e) => {
   if (e.target.closest('button')) return;
-  aimAtPointer(e);
+  if (e.pointerType === 'mouse') {
+    aimAtPointer(e);
+  } else if (phase === 'aim') {
+    sling = pointerToWorld(e);
+    renderer.showPull(sling, sling);
+  }
   startCharge();
 });
+stage.addEventListener('contextmenu', (e) => e.preventDefault());   // long-press menu on phones
 addEventListener('pointerup', releaseCharge);
 addEventListener('pointercancel', releaseCharge);
 addEventListener('blur', () => { held.up = held.down = 0; releaseCharge(); });
@@ -1225,6 +1260,11 @@ $id('copyLink').addEventListener('click', async () => {
   }
 });
 $id('joinCode').addEventListener('input', (e) => { e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); });
+
+// Phones/tablets: explain the slingshot instead of mouse + keys.
+if (matchMedia('(pointer: coarse)').matches) {
+  document.getElementById('menuHint').innerHTML = 'TOUCH, HOLD + PULL BACK TO AIM<br />LET GO TO THROW<br />TAP ITEMS IN YOUR BAG TO USE THEM';
+}
 
 // Browsers only allow audio after a user gesture: start the music on the first click/key.
 addEventListener('pointerdown', () => sfx.unlock(), { once: true });

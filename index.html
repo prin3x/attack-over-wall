@@ -4,6 +4,22 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
     <title>Fence Feud</title>
+    <meta name="description" content="Retro pixel-art dog vs cat artillery game. Throw stuff over the fence, mix items into crazy combos, play vs CPU, on one PC or 2v2 online." />
+    <meta name="theme-color" content="#3a8be0" />
+    <!-- link previews (Facebook, LINE, Discord, WhatsApp, Slack...); the worker fills in the absolute URLs -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Fence Feud" />
+    <meta property="og:title" content="Fence Feud - Dog vs Cat" />
+    <meta property="og:description" content="Throw stuff over the fence, mix items into crazy combos (BOMB + GIANT = NUKE). Play vs CPU, on one PC, or 2v2 online." />
+    <meta property="og:url" content="https://fence-feud.sarut1994.workers.dev/" />
+    <meta property="og:image" content="https://fence-feud.sarut1994.workers.dev/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Fence Feud: a dog, cat, turtle and raccoon dancing on both sides of a brick fence" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Fence Feud - Dog vs Cat" />
+    <meta name="twitter:description" content="Throw stuff over the fence, mix items into crazy combos. Play vs CPU, on one PC, or 2v2 online." />
+    <meta name="twitter:image" content="https://fence-feud.sarut1994.workers.dev/og.png" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 8 8%22%3E%3Crect x=%221%22 y=%222%22 width=%226%22 height=%224%22 fill=%22%23c07a3c%22/%3E%3C/svg%3E" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -53,7 +69,7 @@
           <button data-mode="teams">2V2 TEAMS</button>
           <button data-mode="online">ONLINE</button>
           <button id="openBook">COMBO BOOK</button>
-          <p class="hint">MOUSE OR UP/DOWN TO AIM<br />HOLD CLICK OR SPACE TO THROW<br />PICK ITEMS - USE WITH 1-4</p>
+          <p class="hint" id="menuHint">MOUSE OR UP/DOWN TO AIM<br />HOLD CLICK OR SPACE TO THROW<br />PICK ITEMS - USE WITH 1-4</p>
         </div>
 
         <div id="select" class="screen hidden">

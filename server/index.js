@@ -28,7 +28,22 @@ export default {
       return env.ROOMS.get(env.ROOMS.idFromName(m[1].toUpperCase())).fetch(req);
     }
 
-    return env.ASSETS.fetch(req);
+    const res = await env.ASSETS.fetch(req);
+    // Link previews: absolute URLs for this host, and invite links (?room=CODE) get their own title.
+    if (!(res.headers.get('content-type') || '').includes('text/html')) return res;
+    const room = (url.searchParams.get('room') || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+    const title = room ? `Join my Fence Feud room! (${room})` : null;
+    const desc = room ? 'Tap to jump into my room and throw stuff over the fence at me. Dog vs cat, crazy item combos.' : null;
+    const set = (value) => ({ element(el) { if (value) el.setAttribute('content', value); } });
+    return new HTMLRewriter()
+      .on('meta[property="og:url"]', set(url.origin + url.pathname + (room ? `?room=${room}` : '')))
+      .on('meta[property="og:image"]', set(`${url.origin}/og.png`))
+      .on('meta[name="twitter:image"]', set(`${url.origin}/og.png`))
+      .on('meta[property="og:title"]', set(title))
+      .on('meta[name="twitter:title"]', set(title))
+      .on('meta[property="og:description"]', set(desc))
+      .on('meta[name="twitter:description"]', set(desc))
+      .transform(res);
   },
 };
 

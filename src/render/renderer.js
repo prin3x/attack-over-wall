@@ -166,6 +166,8 @@ export class Renderer {
     };
     this.dial = Array.from({ length: 10 }, (_, k) => dot(k % 3 === 0 ? 2 : 1, 0xffffff, 0.45, 6));
     this.aim = Array.from({ length: 8 }, (_, k) => dot(2, k === 7 ? 0xffd84a : 0xffffff, 1 - k * 0.07, 7));
+    // Touch slingshot: rubber band from where the finger went down to where it is now.
+    this.band = Array.from({ length: 10 }, (_, k) => dot(k === 0 ? 4 : 2, k === 0 ? 0xffd84a : 0xffffff, k === 0 ? 0.9 : 0.6, 9));
 
     // particle pool
     // Floor hazards (FIRE BOMB): a scorch mark + glow per patch, a row of animated flames, embers.
@@ -295,6 +297,16 @@ export class Renderer {
     this.landings.forEach((l, k) => {
       l.mesh.visible = k === i && l.x !== null;
       if (l.mesh.visible) l.mesh.position.set(l.x, GROUND_Y + 1, 0);
+    });
+  }
+
+  /** Slingshot band from the anchor (a) to the finger (f), world coords; null hides it. */
+  showPull(a, f) {
+    this.band.forEach((m, k) => {
+      m.visible = !!a;
+      if (!a) return;
+      const t = k / (this.band.length - 1);
+      m.position.set(Math.round(a.x + (f.x - a.x) * t), Math.round(a.y + (f.y - a.y) * t), 0);
     });
   }
 
